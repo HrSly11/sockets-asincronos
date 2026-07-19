@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/Aplicaciones/">
+    <Project Path="src/ChatCliente/ChatCliente.csproj" />
+    <Project Path="src/ChatServidor/ChatServidor.csproj" />
+  </Folder>
+  <Folder Name="/Compartido/">
+    <Project Path="src/Chat.Presentation/Chat.Presentation.csproj" />
+    <Project Path="src/Chat.Protocol/Chat.Protocol.csproj" />
+  </Folder>
+  <Folder Name="/Pruebas/">
+    <Project Path="tests/Chat.FunctionalTests/Chat.FunctionalTests.csproj" />
+  </Folder>
+</Solution>

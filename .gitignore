@@ -1,0 +1,8 @@
+# Build and publish outputs
+bin/
+obj/
+publish/
+.vs/
+.idea/
+*.user
+*.suo

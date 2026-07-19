@@ -1,0 +1,53 @@
+using Chat.Protocol;
+
+namespace ChatCliente.Network;
+
+public sealed class ClientListChangedEventArgs(IReadOnlyList<ClientInfo> clients) : EventArgs
+{
+    public IReadOnlyList<ClientInfo> Clients { get; } = clients;
+}
+
+public sealed class TextMessageReceivedEventArgs(byte senderId, string text) : EventArgs
+{
+    public byte SenderId { get; } = senderId;
+
+    public string Text { get; } = text;
+}
+
+public sealed class FileProgressEventArgs(
+    Guid transferId,
+    byte peerId,
+    string fileName,
+    int percentage,
+    bool isOutgoing) : EventArgs
+{
+    public Guid TransferId { get; } = transferId;
+
+    public byte PeerId { get; } = peerId;
+
+    public string FileName { get; } = fileName;
+
+    public int Percentage { get; } = percentage;
+
+    public bool IsOutgoing { get; } = isOutgoing;
+}
+
+public sealed class FileReceivedEventArgs(
+    Guid transferId,
+    byte senderId,
+    string fileName,
+    string filePath) : EventArgs
+{
+    public Guid TransferId { get; } = transferId;
+
+    public byte SenderId { get; } = senderId;
+
+    public string FileName { get; } = fileName;
+
+    public string FilePath { get; } = filePath;
+}
+
+public sealed class ClientErrorEventArgs(string message) : EventArgs
+{
+    public string Message { get; } = message;
+}
