@@ -8,6 +8,104 @@ Sistema cliente-servidor de mensajería asíncrona y transferencia simultánea d
 
 ---
 
+## 📐 Diagrama de Arquitectura del Sistema
+
+```mermaid
+graph TD
+    subgraph Clientes ["Clientes (ChatCliente)"]
+        CA["Cliente A (WinForms + Sockets)"]
+        CB["Cliente B (WinForms + Sockets)"]
+    end
+
+    subgraph Servidor ["Servidor Central (ChatServidor)"]
+        L["TcpListener (Puerto 55000)"]
+        R["Router de Tramas (RouteFrameAsync)"]
+        M["Monitor UI & Logs (ServerMonitorForm)"]
+        L --> R
+        R --> M
+    end
+
+    subgraph Protocolo ["Capa de Protocolo (Chat.Protocol)"]
+        FC["FrameCodec (Encoder / Decoder Binario)"]
+        PL["Payloads JSON (Register, Edit, Delete, FileChunk)"]
+    end
+
+    CA <-->|"Sockets TCP / Tramas Binarias"| L
+    CB <-->|"Sockets TCP / Tramas Binarias"| L
+    R --- FC
+    FC --- PL
+```
+
+---
+
+## 🔄 Flujo del Protocolo de Tramas (Framing Protocol)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as Cliente A (Jenny)
+    participant S as Servidor (ChatServidor)
+    participant B as Cliente B (Pedro)
+
+    Note over A,S: 1. Registro e Identificación
+    A->>S: Frame (Register: "Jenny")
+    S->>A: Frame (RegistrationResult: Accepted, ID=1)
+    S->>B: Broadcast (ClientList: [Jenny, Pedro])
+
+    Note over A,B: 2. Mensajería en Tiempo Real
+    A->>S: Frame (TextMessage -> TargetID=2: "Hola Pedro")
+    S->>B: Frame (TextMessage -> SenderID=1: "Hola Pedro")
+
+    Note over A,B: 3. Edición / Eliminación
+    A->>S: Frame (EditMessage: MsgID, "Nuevo Texto")
+    S->>B: Frame (EditMessage: MsgID, "Nuevo Texto")
+
+    Note over A,B: 4. Transferencia de Archivos (Multiplexada)
+    A->>S: Frame (FileStart: TransferID, "foto.jpg", 10MB)
+    S->>B: Frame (FileStart)
+    loop Bloques de 32 KB (Chunks)
+        A->>S: Frame (FileChunk: TransferID, 32KB)
+        S->>B: Frame (FileChunk: TransferID, 32KB)
+    end
+    A->>S: Frame (FileEnd: TransferID)
+    S->>B: Frame (FileEnd: TransferID)
+```
+
+---
+
+## ⚡ Multiplexación de Red (Envío Simultáneo)
+
+```mermaid
+flowchart LR
+    subgraph Emisor ["ChatClient (Emisor)"]
+        FA["Archivo A (Task 1)"]
+        FB["Archivo B (Task 2)"]
+        TX["Chat de Texto (Task 3)"]
+    end
+
+    SL{"sendLock (SemaphoreSlim)"}
+
+    subgraph Cable ["Canal TCP Único (NetworkStream)"]
+        NET["[Chunk 1-A] -> [Chunk 1-B] -> [Texto] -> [Chunk 2-A] -> [Chunk 2-B]"]
+    end
+
+    subgraph Receptor ["ChatClient (Receptor)"]
+        R1["Reensamblado Archivo A"]
+        R2["Reensamblado Archivo B"]
+        RT["Render de Chat"]
+    end
+
+    FA --> SL
+    FB --> SL
+    TX --> SL
+    SL --> NET
+    NET --> R1
+    NET --> R2
+    NET --> RT
+```
+
+---
+
 ## 🚀 Características Principales
 
 - **Arquitectura Cliente-Servidor sobre Sockets TCP:**
