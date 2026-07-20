@@ -66,7 +66,7 @@ public sealed class SendGroupMessageRequestedEventArgs(Guid groupId, string mess
     public string Message { get; } = message;
 }
 
-public sealed record VoiceNoteView(string VoiceNoteId, string Sender, string DurationText, byte[] AudioData, bool IsOwn);
+public sealed record VoiceNoteView(string VoiceNoteId, string Sender, string DurationText, byte[] AudioData, bool IsOwn, string LocalFilePath);
 
 public sealed class SendVoiceNoteRequestedEventArgs(byte targetId, byte[] audioData, long durationMs) : EventArgs
 {

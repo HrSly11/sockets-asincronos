@@ -57,11 +57,16 @@ public sealed class ClientCoordinator : IAsyncDisposable
         IChatClient? client = null;
         try
         {
-            var downloadsDirectory = Path.Combine(
+            var baseDirectory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                 "Downloads",
                 "Chat de Redes");
-            client = clientFactory(downloadsDirectory);
+            var filesDirectory = Path.Combine(baseDirectory, "Archivos");
+            var audiosDirectory = Path.Combine(baseDirectory, "Audios");
+            Directory.CreateDirectory(filesDirectory);
+            Directory.CreateDirectory(audiosDirectory);
+
+            client = clientFactory(filesDirectory);
             Client = client;
             WireClient(client);
             var result = await client
@@ -713,6 +718,22 @@ public sealed class ClientCoordinator : IAsyncDisposable
 
     private Media.UdpAudioStreamer? activeUdpStreamer;
 
+    private static string SaveVoiceNoteFile(string vnId, byte[] audioData)
+    {
+        var dir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Downloads",
+            "Chat de Redes",
+            "Audios");
+        Directory.CreateDirectory(dir);
+        var filePath = Path.Combine(dir, $"nota_de_voz_{vnId}.wav");
+        if (!File.Exists(filePath))
+        {
+            File.WriteAllBytes(filePath, audioData);
+        }
+        return filePath;
+    }
+
     private async void HandleSendVoiceNoteRequested(object? sender, SendVoiceNoteRequestedEventArgs args)
     {
         var client = Client;
@@ -722,8 +743,9 @@ public sealed class ClientCoordinator : IAsyncDisposable
         {
             var vnId = Guid.NewGuid().ToString("N");
             var seconds = Math.Max(1, args.DurationMs / 1000);
+            var savedPath = SaveVoiceNoteFile(vnId, args.AudioData);
             await client.SendVoiceNoteAsync(args.TargetId, vnId, args.DurationMs, $"voicenote_{vnId}.wav", args.AudioData);
-            var noteView = new VoiceNoteView(vnId, "Tú", $"{seconds}s", args.AudioData, true);
+            var noteView = new VoiceNoteView(vnId, "Tú", $"{seconds}s", args.AudioData, true, savedPath);
             UpdateChatForm(form => form.AppendVoiceNote(args.TargetId, noteView));
         }
         catch (Exception exception)
@@ -738,7 +760,8 @@ public sealed class ClientCoordinator : IAsyncDisposable
         {
             var senderName = Client?.Clients.FirstOrDefault(c => c.Id == args.SenderId)?.Username ?? $"Usuario {args.SenderId}";
             var seconds = Math.Max(1, args.DurationMs / 1000);
-            var noteView = new VoiceNoteView(args.VoiceNoteId, senderName, $"{seconds}s", args.AudioData, false);
+            var savedPath = SaveVoiceNoteFile(args.VoiceNoteId, args.AudioData);
+            var noteView = new VoiceNoteView(args.VoiceNoteId, senderName, $"{seconds}s", args.AudioData, false, savedPath);
             UpdateChatForm(form => form.AppendVoiceNote(args.SenderId, noteView));
         }
         catch (Exception exception)

@@ -1278,35 +1278,114 @@ public sealed partial class ChatForm : Form
 
     private Control CreateVoiceNoteRow(VoiceNoteView note)
     {
-        var rowWidth = Math.Min(340, Math.Max(240, messagesFlow.ClientSize.Width - 140));
+        var rowWidth = Math.Min(360, Math.Max(260, messagesFlow.ClientSize.Width - 140));
         var panel = new Guna2Panel
         {
-            Size = new Size(rowWidth, 48),
+            Size = new Size(rowWidth, 64),
             BorderRadius = Theme.CardRadius,
             FillColor = note.IsOwn ? Theme.Primary : Theme.Surface,
             Margin = new Padding(4)
         };
+
         var playBtn = new Guna2Button
         {
-            Location = new Point(6, 6),
-            Size = new Size(36, 36),
+            Location = new Point(8, 12),
+            Size = new Size(40, 40),
             Text = "▶",
-            BorderRadius = 18
+            BorderRadius = 20,
+            Font = Theme.BodyFont(11F, FontStyle.Bold)
         };
         Theme.StyleSecondaryButton(playBtn);
-        playBtn.Click += (_, _) => Media.WaveAudioRecorder.PlayAudio(note.AudioData);
 
-        var infoLabel = new Label
+        var trackBar = new Guna2TrackBar
         {
-            Location = new Point(48, 8),
-            Size = new Size(rowWidth - 56, 32),
-            Text = $"🎙️ Nota de voz ({note.DurationText})",
-            Font = Theme.BodyFont(9F, FontStyle.Bold),
-            ForeColor = note.IsOwn ? Color.White : Theme.MainText,
-            TextAlign = ContentAlignment.MiddleLeft
+            Location = new Point(56, 12),
+            Size = new Size(rowWidth - 105, 20),
+            Minimum = 0,
+            Maximum = 100,
+            Value = 0,
+            ThumbColor = note.IsOwn ? Color.White : Theme.Primary
         };
-        panel.Controls.AddRange([playBtn, infoLabel]);
-        return CreateAlignedRow(panel, note.IsOwn, 60);
+
+        var timeLabel = new Label
+        {
+            Location = new Point(56, 36),
+            Size = new Size(160, 20),
+            Text = $"00:00 / {note.DurationText}",
+            Font = Theme.MetadataFont(),
+            ForeColor = note.IsOwn ? Color.FromArgb(230, 255, 255, 255) : Theme.SecondaryText
+        };
+
+        var folderBtn = new Guna2Button
+        {
+            Location = new Point(rowWidth - 44, 14),
+            Size = new Size(36, 36),
+            Text = "📂",
+            BorderRadius = 8
+        };
+        Theme.StyleSecondaryButton(folderBtn);
+        folderBtn.Click += (_, _) =>
+        {
+            if (File.Exists(note.LocalFilePath))
+            {
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{note.LocalFilePath}\"");
+            }
+            else
+            {
+                var dir = Path.GetDirectoryName(note.LocalFilePath);
+                if (Directory.Exists(dir))
+                {
+                    System.Diagnostics.Process.Start("explorer.exe", $"\"{dir}\"");
+                }
+            }
+        };
+
+        Media.MciAudioPlayer? mciPlayer = null;
+        System.Windows.Forms.Timer? playTimer = null;
+
+        playBtn.Click += (_, _) =>
+        {
+            mciPlayer ??= new Media.MciAudioPlayer(note.LocalFilePath);
+            if (playTimer is null)
+            {
+                playTimer = new System.Windows.Forms.Timer { Interval = 100 };
+                playTimer.Tick += (_, _) =>
+                {
+                    if (mciPlayer is null) return;
+                    var pos = mciPlayer.GetPositionMs();
+                    var total = mciPlayer.GetDurationMs();
+                    if (total > 0)
+                    {
+                        var pct = Math.Min(100, (pos * 100) / total);
+                        trackBar.Value = pct;
+                        var posSec = pos / 1000;
+                        timeLabel.Text = $"{posSec:D2}:{(pos / 100) % 10:D1} / {note.DurationText}";
+                        if (pos >= total || !mciPlayer.IsPlaying())
+                        {
+                            playBtn.Text = "▶";
+                            playTimer.Stop();
+                            trackBar.Value = 0;
+                        }
+                    }
+                };
+            }
+
+            if (mciPlayer.IsPlaying())
+            {
+                mciPlayer.Pause();
+                playTimer.Stop();
+                playBtn.Text = "▶";
+            }
+            else
+            {
+                mciPlayer.Play();
+                playTimer.Start();
+                playBtn.Text = "⏸️";
+            }
+        };
+
+        panel.Controls.AddRange([playBtn, trackBar, timeLabel, folderBtn]);
+        return CreateAlignedRow(panel, note.IsOwn, 76);
     }
 
     public void ShowIncomingCallDialog(byte callerId, Guid callId, string callerName)
