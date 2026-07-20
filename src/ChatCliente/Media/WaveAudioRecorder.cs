@@ -149,9 +149,17 @@ public sealed class WaveAudioRecorder : IDisposable
         {
             waveInStop(hWaveIn);
             waveInReset(hWaveIn);      // forces driver to mark buffer DONE
-            Thread.Sleep(80);          // let driver flush dwBytesRecorded
 
+            // Wait up to 300ms for driver to set WHDR_DONE flag and write dwBytesRecorded
             var hdr = Marshal.PtrToStructure<WAVEHDR>(hdrPtr);
+            int spin = 0;
+            while ((hdr.dwFlags & WHDR_DONE) == 0 && spin < 30)
+            {
+                Thread.Sleep(10);
+                hdr = Marshal.PtrToStructure<WAVEHDR>(hdrPtr);
+                spin++;
+            }
+
             int recorded = (int)hdr.dwBytesRecorded;
 
             waveInUnprepareHeader(hWaveIn, hdrPtr, Marshal.SizeOf<WAVEHDR>());
