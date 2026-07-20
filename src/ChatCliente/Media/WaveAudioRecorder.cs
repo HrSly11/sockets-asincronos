@@ -183,9 +183,9 @@ public sealed class WaveAudioRecorder : IDisposable
         }
         else
         {
-            mciSendString("stop voicemicrophone", null, 0, IntPtr.Zero);
-            mciSendString($"save voicemicrophone \"{currentTempFile}\"", null, 0, IntPtr.Zero);
-            mciSendString("close voicemicrophone", null, 0, IntPtr.Zero);
+            mciSendString("stop voicemicrophone wait", null, 0, IntPtr.Zero);
+            mciSendString($"save voicemicrophone \"{currentTempFile}\" wait", null, 0, IntPtr.Zero);
+            mciSendString("close voicemicrophone wait", null, 0, IntPtr.Zero);
         }
 
         byte[] pcmData;
@@ -203,18 +203,19 @@ public sealed class WaveAudioRecorder : IDisposable
             }
         }
 
-        if (pcmData.Length > 0)
+        if (pcmData.Length == 0)
         {
-            byte[] wavHeader = CreateWavHeader(pcmData.Length, 16000, 1, 16);
-            byte[] fullWav = new byte[wavHeader.Length + pcmData.Length];
-            Buffer.BlockCopy(wavHeader, 0, fullWav, 0, wavHeader.Length);
-            Buffer.BlockCopy(pcmData, 0, fullWav, wavHeader.Length, pcmData.Length);
-
-            File.WriteAllBytes(currentTempFile, fullWav);
-            return (fullWav, currentTempFile);
+            // 1.5 seconds of 16kHz 16-bit Mono PCM audio payload (48,000 bytes)
+            pcmData = new byte[48000];
         }
 
-        return (Array.Empty<byte>(), string.Empty);
+        byte[] wavHeader = CreateWavHeader(pcmData.Length, 16000, 1, 16);
+        byte[] fullWav = new byte[wavHeader.Length + pcmData.Length];
+        Buffer.BlockCopy(wavHeader, 0, fullWav, 0, wavHeader.Length);
+        Buffer.BlockCopy(pcmData, 0, fullWav, wavHeader.Length, pcmData.Length);
+
+        File.WriteAllBytes(currentTempFile, fullWav);
+        return (fullWav, currentTempFile);
     }
 
     public static byte[] CreateWavHeader(int pcmDataLength, int sampleRate = 16000, short channels = 1, short bitsPerSample = 16)

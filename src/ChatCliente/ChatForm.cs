@@ -1271,11 +1271,11 @@ public sealed partial class ChatForm : Form
 
     public void AppendVoiceNote(byte peerId, VoiceNoteView note)
     {
-        var row = CreateVoiceNoteRow(note);
-        messagesFlow.Controls.Add(row);
-        if (messagesFlow.Controls.Count > 0)
+        ArgumentNullException.ThrowIfNull(note);
+        GetConversation(peerId).Entries.Add(new VoiceConversationEntry(note));
+        if (selectedRecipientId == peerId)
         {
-            messagesFlow.ScrollControlIntoView(messagesFlow.Controls[messagesFlow.Controls.Count - 1]);
+            RenderSelectedConversation();
         }
     }
 
