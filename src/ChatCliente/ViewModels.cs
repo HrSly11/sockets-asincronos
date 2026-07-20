@@ -57,3 +57,11 @@ public sealed class AttachmentRequestedEventArgs(
     public IReadOnlyList<string> FilePaths { get; } = filePaths;
 }
 
+public sealed record ChatGroupView(Guid Id, string GroupName, IReadOnlyList<string> MemberNames);
+
+public sealed class SendGroupMessageRequestedEventArgs(Guid groupId, string message) : EventArgs
+{
+    public Guid GroupId { get; } = groupId;
+
+    public string Message { get; } = message;
+}

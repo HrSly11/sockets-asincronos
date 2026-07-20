@@ -18,6 +18,10 @@ public interface IChatClient : IAsyncDisposable
 
     event EventHandler<MessageDeletedEventArgs>? MessageDeleted;
 
+    event EventHandler<GroupCreatedEventArgs>? GroupCreated;
+
+    event EventHandler<GroupMessageReceivedEventArgs>? GroupMessageReceived;
+
     event EventHandler? Disconnected;
 
     byte ClientId { get; }
@@ -39,6 +43,17 @@ public interface IChatClient : IAsyncDisposable
 
     Task SendMessageAsync(
         byte targetId,
+        string messageId,
+        string text,
+        CancellationToken cancellationToken = default);
+
+    Task CreateGroupAsync(
+        string groupName,
+        IReadOnlyList<byte> memberIds,
+        CancellationToken cancellationToken = default);
+
+    Task SendGroupMessageAsync(
+        Guid groupId,
         string messageId,
         string text,
         CancellationToken cancellationToken = default);

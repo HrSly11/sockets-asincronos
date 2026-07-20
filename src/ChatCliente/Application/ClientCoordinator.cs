@@ -448,6 +448,8 @@ public sealed class ClientCoordinator : IAsyncDisposable
         client.MessageReceived += HandleMessageReceived;
         client.MessageEdited += HandleMessageEdited;
         client.MessageDeleted += HandleMessageDeleted;
+        client.GroupCreated += HandleGroupCreated;
+        client.GroupMessageReceived += HandleGroupMessageReceived;
         client.FileProgressChanged += HandleFileProgressChanged;
         client.FileReceived += HandleFileReceived;
         client.ErrorReceived += HandleErrorReceived;
@@ -460,6 +462,8 @@ public sealed class ClientCoordinator : IAsyncDisposable
         client.MessageReceived -= HandleMessageReceived;
         client.MessageEdited -= HandleMessageEdited;
         client.MessageDeleted -= HandleMessageDeleted;
+        client.GroupCreated -= HandleGroupCreated;
+        client.GroupMessageReceived -= HandleGroupMessageReceived;
         client.FileProgressChanged -= HandleFileProgressChanged;
         client.FileReceived -= HandleFileReceived;
         client.ErrorReceived -= HandleErrorReceived;
@@ -471,6 +475,8 @@ public sealed class ClientCoordinator : IAsyncDisposable
         chatForm.SendMessageRequested += HandleSendMessageRequested;
         chatForm.EditMessageRequested += HandleEditMessageRequested;
         chatForm.DeleteMessageRequested += HandleDeleteMessageRequested;
+        chatForm.CreateGroupRequested += HandleCreateGroupRequested;
+        chatForm.SendGroupMessageRequested += HandleSendGroupMessageRequested;
         chatForm.AttachmentRequested += HandleAttachmentRequested;
         chatForm.FormClosed += HandleChatFormClosed;
     }
@@ -480,6 +486,8 @@ public sealed class ClientCoordinator : IAsyncDisposable
         chatForm.SendMessageRequested -= HandleSendMessageRequested;
         chatForm.EditMessageRequested -= HandleEditMessageRequested;
         chatForm.DeleteMessageRequested -= HandleDeleteMessageRequested;
+        chatForm.CreateGroupRequested -= HandleCreateGroupRequested;
+        chatForm.SendGroupMessageRequested -= HandleSendGroupMessageRequested;
         chatForm.AttachmentRequested -= HandleAttachmentRequested;
         chatForm.FormClosed -= HandleChatFormClosed;
     }
@@ -610,6 +618,77 @@ public sealed class ClientCoordinator : IAsyncDisposable
     {
         UpdateChatForm(form => form.MarkMessageDeleted(args.SenderId, args.MessageId));
         UpdateLocalHistoryDeleted(args.SenderId, args.MessageId);
+    }
+
+    private void HandleCreateGroupRequested(object? sender, EventArgs args)
+    {
+        var client = Client;
+        if (client is null || !client.IsConnected) return;
+
+        var availableClients = client.Clients.Where(c => c.Id != client.ClientId).ToList();
+        using var dialog = new CreateGroupDialog(availableClients);
+        if (dialog.ShowDialog() == DialogResult.OK)
+        {
+            try
+            {
+                _ = client.CreateGroupAsync(dialog.GroupName, dialog.SelectedMemberIds);
+            }
+            catch (Exception exception)
+            {
+                UpdateChatForm(form => form.ShowComposerError($"No se pudo crear el grupo: {exception.Message}"));
+            }
+        }
+    }
+
+    private void HandleGroupCreated(object? sender, GroupCreatedEventArgs args)
+    {
+        var memberNames = args.Members.Select(m => m.Username).ToList();
+        var groupView = new ChatGroupView(args.GroupId, args.GroupName, memberNames);
+        UpdateChatForm(form => form.AddGroup(groupView));
+    }
+
+    private async void HandleSendGroupMessageRequested(object? sender, SendGroupMessageRequestedEventArgs args)
+    {
+        var client = Client;
+        if (client is null || !client.IsConnected) return;
+
+        try
+        {
+            var messageId = Guid.NewGuid().ToString("N");
+            await client.SendGroupMessageAsync(args.GroupId, messageId, args.Message);
+            var message = new ChatMessageView(
+                messageId,
+                "Tú",
+                args.Message,
+                DateTimeOffset.Now,
+                true);
+            UpdateChatForm(form => form.AppendGroupMessage(args.GroupId, message));
+        }
+        catch (Exception exception)
+        {
+            UpdateChatForm(form => form.ShowComposerError(exception.Message));
+        }
+    }
+
+    private void HandleGroupMessageReceived(object? sender, GroupMessageReceivedEventArgs args)
+    {
+        try
+        {
+            var senderName = Client?.Clients
+                .FirstOrDefault(client => client.Id == args.SenderId)?.Username
+                ?? $"Usuario {args.SenderId}";
+            var message = new ChatMessageView(
+                args.MessageId,
+                senderName,
+                args.Text,
+                DateTimeOffset.Now,
+                false);
+            UpdateChatForm(form => form.AppendGroupMessage(args.GroupId, message));
+        }
+        catch (Exception exception)
+        {
+            UpdateChatForm(form => form.ShowComposerError(exception.Message));
+        }
     }
 
     private void RestoreHistoryForUsers(IEnumerable<ClientInfo> clients, ChatForm form)

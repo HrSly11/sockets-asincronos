@@ -106,6 +106,10 @@ public sealed class ChatClient : IChatClient
 
     public event EventHandler<MessageDeletedEventArgs>? MessageDeleted;
 
+    public event EventHandler<GroupCreatedEventArgs>? GroupCreated;
+
+    public event EventHandler<GroupMessageReceivedEventArgs>? GroupMessageReceived;
+
     public byte ClientId { get; private set; }
 
     public bool IsConnected { get; private set; }
@@ -272,6 +276,42 @@ public sealed class ChatClient : IChatClient
         var connectionGeneration = GetConnectedGeneration();
         return SendFrameAsync(
             new Frame(FrameCommand.TextMessage, targetId, payload),
+            cancellationToken,
+            connectionGeneration);
+    }
+
+    public Task CreateGroupAsync(
+        string groupName,
+        IReadOnlyList<byte> memberIds,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(groupName);
+        ArgumentNullException.ThrowIfNull(memberIds);
+
+        var connectionGeneration = GetConnectedGeneration();
+        var payload = JsonPayload.Serialize(new CreateGroupPayload(groupName.Trim(), memberIds));
+        return SendFrameAsync(
+            new Frame(FrameCommand.CreateGroup, 0, payload),
+            cancellationToken,
+            connectionGeneration);
+    }
+
+    public Task SendGroupMessageAsync(
+        Guid groupId,
+        string messageId,
+        string text,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
+        if (string.IsNullOrEmpty(text))
+        {
+            throw new ArgumentException("The message cannot be empty.", nameof(text));
+        }
+
+        var connectionGeneration = GetConnectedGeneration();
+        var payload = JsonPayload.Serialize(new GroupMessagePayload(groupId, messageId, text));
+        return SendFrameAsync(
+            new Frame(FrameCommand.GroupMessage, 0, payload),
             cancellationToken,
             connectionGeneration);
     }
@@ -687,6 +727,18 @@ public sealed class ChatClient : IChatClient
                 InvokeSubscribersSafely(
                     MessageDeleted,
                     new MessageDeletedEventArgs(frame.RouteId, del.MessageId));
+                break;
+            case FrameCommand.GroupCreated:
+                var groupCreated = JsonPayload.Deserialize<GroupCreatedPayload>(frame.Payload);
+                InvokeSubscribersSafely(
+                    GroupCreated,
+                    new GroupCreatedEventArgs(groupCreated.GroupId, groupCreated.GroupName, groupCreated.Members));
+                break;
+            case FrameCommand.GroupMessage:
+                var groupMsg = JsonPayload.Deserialize<GroupMessagePayload>(frame.Payload);
+                InvokeSubscribersSafely(
+                    GroupMessageReceived,
+                    new GroupMessageReceivedEventArgs(groupMsg.GroupId, frame.RouteId, groupMsg.MessageId, groupMsg.Text));
                 break;
             case FrameCommand.FileStart:
                 await HandleFileStartAsync(

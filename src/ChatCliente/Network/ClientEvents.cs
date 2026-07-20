@@ -53,3 +53,18 @@ public sealed class ClientErrorEventArgs(string message) : EventArgs
 {
     public string Message { get; } = message;
 }
+
+public sealed class GroupCreatedEventArgs(Guid groupId, string groupName, IReadOnlyList<ClientInfo> members) : EventArgs
+{
+    public Guid GroupId { get; } = groupId;
+    public string GroupName { get; } = groupName;
+    public IReadOnlyList<ClientInfo> Members { get; } = members;
+}
+
+public sealed class GroupMessageReceivedEventArgs(Guid groupId, byte senderId, string messageId, string text) : EventArgs
+{
+    public Guid GroupId { get; } = groupId;
+    public byte SenderId { get; } = senderId;
+    public string MessageId { get; } = messageId;
+    public string Text { get; } = text;
+}

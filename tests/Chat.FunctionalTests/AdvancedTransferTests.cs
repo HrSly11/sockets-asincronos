@@ -589,6 +589,18 @@ public sealed class AdvancedTransferTests
             remove { }
         }
 
+        public event EventHandler<GroupCreatedEventArgs>? GroupCreated
+        {
+            add { }
+            remove { }
+        }
+
+        public event EventHandler<GroupMessageReceivedEventArgs>? GroupMessageReceived
+        {
+            add { }
+            remove { }
+        }
+
         public event EventHandler? Disconnected
         {
             add { }
@@ -630,6 +642,17 @@ public sealed class AdvancedTransferTests
             MessageSent.TrySetResult(text);
             return Task.CompletedTask;
         }
+
+        public Task CreateGroupAsync(
+            string groupName,
+            IReadOnlyList<byte> memberIds,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task SendGroupMessageAsync(
+            Guid groupId,
+            string messageId,
+            string text,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task SendEditMessageAsync(
             byte targetId,

@@ -25,8 +25,13 @@ public sealed partial class ChatForm : Form
     private readonly Dictionary<byte, Guna2Panel> userRows = [];
     private readonly Dictionary<byte, string> userNames = [];
     private readonly Dictionary<byte, ConversationState> conversations = [];
+    private readonly Dictionary<Guid, Guna2Panel> groupRows = [];
+    private readonly Dictionary<Guid, string> groupNames = [];
+    private readonly Dictionary<Guid, ConversationState> groupConversations = [];
     private byte? selectedRecipientId;
     private string? selectedRecipientName;
+    private Guid? selectedGroupId;
+    private string? selectedGroupName;
     private bool isConnected;
 
     public ChatForm(
@@ -101,12 +106,23 @@ public sealed partial class ChatForm : Form
         };
         brandRow.Controls.AddRange([brandIcon, brandTitle, brandSubtitle]);
 
+        var createGroupButton = new Guna2Button
+        {
+            Text = "+ Nuevo Grupo",
+            Dock = DockStyle.Top,
+            Height = 36,
+            Margin = new Padding(12, 8, 12, 8),
+            BorderRadius = Theme.CardRadius
+        };
+        Theme.StylePrimaryButton(createGroupButton);
+        createGroupButton.Click += (sender, e) => CreateGroupRequested?.Invoke(this, EventArgs.Empty);
+
         var usersHeading = new Label
         {
             Dock = DockStyle.Top,
             Height = 42,
             Padding = new Padding(2, 16, 0, 0),
-            Text = "USUARIOS CONECTADOS",
+            Text = "USUARIOS Y GRUPOS",
             Font = Theme.BodyFont(8F, FontStyle.Bold),
             ForeColor = Color.FromArgb(170, 255, 255, 255),
             BackColor = Theme.Sidebar
@@ -164,6 +180,7 @@ public sealed partial class ChatForm : Form
 
         sidebar.Controls.Add(usersFlow);
         sidebar.Controls.Add(usersHeading);
+        sidebar.Controls.Add(createGroupButton);
         sidebar.Controls.Add(brandRow);
         sidebar.Controls.Add(connectionCard);
 
@@ -233,7 +250,13 @@ public sealed partial class ChatForm : Form
 
     public event EventHandler<AttachmentRequestedEventArgs>? AttachmentRequested;
 
+    public event EventHandler<SendGroupMessageRequestedEventArgs>? SendGroupMessageRequested;
+
+    public event EventHandler? CreateGroupRequested;
+
     public byte? SelectedRecipientId => selectedRecipientId;
+
+    public Guid? SelectedGroupId => selectedGroupId;
 
     public IReadOnlyList<ChatMessageView> VisibleMessages => GetSelectedEntries()
         .OfType<MessageConversationEntry>()
@@ -476,11 +499,19 @@ public sealed partial class ChatForm : Form
 
         selectedRecipientId = userId;
         selectedRecipientName = displayName;
+        selectedGroupId = null;
+        selectedGroupName = null;
+
         foreach (var (id, row) in userRows)
         {
             row.FillColor = id == userId
                 ? Color.FromArgb(70, Theme.Primary)
                 : Color.Transparent;
+        }
+
+        foreach (var (_, row) in groupRows)
+        {
+            row.FillColor = Color.Transparent;
         }
 
         UpdateConversationHeader();
@@ -699,10 +730,142 @@ public sealed partial class ChatForm : Form
 
     private IReadOnlyList<ConversationEntry> GetSelectedEntries()
     {
-        return selectedRecipientId.HasValue
-            && conversations.TryGetValue(selectedRecipientId.Value, out var conversation)
-                ? conversation.Entries
-                : [];
+        if (selectedGroupId.HasValue && groupConversations.TryGetValue(selectedGroupId.Value, out var groupConv))
+        {
+            return groupConv.Entries;
+        }
+
+        if (selectedRecipientId.HasValue && conversations.TryGetValue(selectedRecipientId.Value, out var userConv))
+        {
+            return userConv.Entries;
+        }
+
+        return [];
+    }
+
+    public void AddGroup(ChatGroupView group)
+    {
+        groupNames[group.Id] = group.GroupName;
+        if (!groupConversations.ContainsKey(group.Id))
+        {
+            groupConversations[group.Id] = new ConversationState();
+        }
+
+        var row = CreateGroupRow(group);
+        groupRows[group.Id] = row;
+        usersFlow.Controls.Add(row);
+        SelectGroup(group.Id);
+    }
+
+    public bool SelectGroup(Guid groupId)
+    {
+        if (!groupNames.TryGetValue(groupId, out var groupName))
+        {
+            return false;
+        }
+
+        selectedRecipientId = null;
+        selectedRecipientName = null;
+        selectedGroupId = groupId;
+        selectedGroupName = groupName;
+
+        foreach (var (_, row) in userRows)
+        {
+            row.FillColor = Color.Transparent;
+        }
+
+        foreach (var (id, row) in groupRows)
+        {
+            row.FillColor = id == groupId
+                ? Color.FromArgb(70, Theme.Primary)
+                : Color.Transparent;
+        }
+
+        UpdateConversationHeader();
+        RenderSelectedConversation();
+        SetComposerEnabled(isConnected);
+        ClearComposerError();
+        messageTextBox.Focus();
+        return true;
+    }
+
+    public void AppendGroupMessage(Guid groupId, ChatMessageView message)
+    {
+        if (!groupConversations.TryGetValue(groupId, out var conversation))
+        {
+            conversation = new ConversationState();
+            groupConversations[groupId] = conversation;
+        }
+
+        conversation.Entries.Add(new MessageConversationEntry(message));
+        if (selectedGroupId == groupId)
+        {
+            messagesEmptyState.Visible = false;
+            var row = CreateMessageRow(message);
+            messagesFlow.Controls.Add(row);
+            if (messagesFlow.Controls.Count > 0)
+            {
+                messagesFlow.ScrollControlIntoView(messagesFlow.Controls[messagesFlow.Controls.Count - 1]);
+            }
+        }
+    }
+
+    private Guna2Panel CreateGroupRow(ChatGroupView group)
+    {
+        var row = new Guna2Panel
+        {
+            Size = new Size(200, 42),
+            BorderRadius = Theme.InputRadius,
+            FillColor = selectedGroupId == group.Id
+                ? Color.FromArgb(70, Theme.Primary)
+                : Color.Transparent,
+            Cursor = Cursors.Hand,
+            Tag = group.Id,
+            Margin = new Padding(0, 2, 0, 2)
+        };
+        var icon = new Label
+        {
+            Location = new Point(3, 4),
+            Size = new Size(26, 34),
+            Text = "👥",
+            Font = Theme.BodyFont(12F),
+            TextAlign = ContentAlignment.MiddleCenter
+        };
+        var name = new Label
+        {
+            Location = new Point(32, 4),
+            Size = new Size(160, 34),
+            Text = group.GroupName,
+            AutoEllipsis = true,
+            Font = Theme.BodyFont(9F, FontStyle.Bold),
+            ForeColor = Color.White,
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+        row.Controls.AddRange([icon, name]);
+        void OnSelectGroup(object? sender, EventArgs e) => SelectGroup(group.Id);
+        row.Click += OnSelectGroup;
+        icon.Click += OnSelectGroup;
+        name.Click += OnSelectGroup;
+        return row;
+    }
+
+    private void UpdateConversationHeader()
+    {
+        if (selectedGroupId.HasValue && selectedGroupName is not null)
+        {
+            conversationTitleLabel.Text = $"👥 {selectedGroupName}";
+            conversationSubtitleLabel.Text = "Chat de grupo";
+        }
+        else if (selectedRecipientId.HasValue && selectedRecipientName is not null)
+        {
+            conversationTitleLabel.Text = selectedRecipientName;
+            conversationSubtitleLabel.Text = "Chat individual por socket TCP";
+        }
+        else
+        {
+            conversationTitleLabel.Text = "Selecciona un usuario o grupo";
+            conversationSubtitleLabel.Text = "Elige a quién enviar mensajes y archivos.";
+        }
     }
 
     private void RenderSelectedConversation()
@@ -779,15 +942,7 @@ public sealed partial class ChatForm : Form
         }
     }
 
-    private void UpdateConversationHeader()
-    {
-        conversationTitleLabel.Text = selectedRecipientName is null
-            ? "Selecciona un usuario"
-            : $"Conversación con {selectedRecipientName}";
-        conversationSubtitleLabel.Text = selectedRecipientName is null
-            ? "Elige a quién enviar mensajes y archivos."
-            : "Mensajes y archivos privados";
-    }
+
 
     private Control CreateMessageRow(ChatMessageView message)
     {
@@ -988,9 +1143,9 @@ public sealed partial class ChatForm : Form
 
     private void HandleSendClick(object? sender, EventArgs e)
     {
-        if (!selectedRecipientId.HasValue)
+        if (!selectedRecipientId.HasValue && !selectedGroupId.HasValue)
         {
-            ShowComposerError("Selecciona un destinatario.");
+            ShowComposerError("Selecciona un usuario o grupo.");
             return;
         }
 
@@ -1002,9 +1157,18 @@ public sealed partial class ChatForm : Form
         }
 
         ClearComposerError();
-        SendMessageRequested?.Invoke(
-            this,
-            new MessageRequestedEventArgs(selectedRecipientId.Value, message));
+        if (selectedGroupId.HasValue)
+        {
+            SendGroupMessageRequested?.Invoke(
+                this,
+                new SendGroupMessageRequestedEventArgs(selectedGroupId.Value, message));
+        }
+        else if (selectedRecipientId.HasValue)
+        {
+            SendMessageRequested?.Invoke(
+                this,
+                new MessageRequestedEventArgs(selectedRecipientId.Value, message));
+        }
     }
 
     private void HandleAttachmentClick(object? sender, EventArgs e)

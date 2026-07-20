@@ -425,6 +425,18 @@ public sealed class ApplicationSmokeTests
             remove { }
         }
 
+        public event EventHandler<GroupCreatedEventArgs>? GroupCreated
+        {
+            add { }
+            remove { }
+        }
+
+        public event EventHandler<GroupMessageReceivedEventArgs>? GroupMessageReceived
+        {
+            add { }
+            remove { }
+        }
+
         public event EventHandler? Disconnected;
 
         public byte ClientId { get; private set; }
@@ -470,6 +482,17 @@ public sealed class ApplicationSmokeTests
 
             return Task.CompletedTask;
         }
+
+        public Task CreateGroupAsync(
+            string groupName,
+            IReadOnlyList<byte> memberIds,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task SendGroupMessageAsync(
+            Guid groupId,
+            string messageId,
+            string text,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task SendEditMessageAsync(
             byte targetId,

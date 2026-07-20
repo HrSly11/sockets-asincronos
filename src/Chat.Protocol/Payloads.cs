@@ -24,6 +24,12 @@ public sealed record EditMessagePayload(string MessageId, string NewText);
 
 public sealed record DeleteMessagePayload(string MessageId);
 
+public sealed record CreateGroupPayload(string GroupName, IReadOnlyList<byte> MemberIds);
+
+public sealed record GroupCreatedPayload(Guid GroupId, string GroupName, IReadOnlyList<ClientInfo> Members);
+
+public sealed record GroupMessagePayload(Guid GroupId, string MessageId, string Text);
+
 
 public static class JsonPayload
 {

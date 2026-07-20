@@ -13,5 +13,8 @@ public enum FrameCommand : byte
     Error = 9,
     FileAbort = 10,
     EditMessage = 11,
-    DeleteMessage = 12
+    DeleteMessage = 12,
+    CreateGroup = 13,
+    GroupCreated = 14,
+    GroupMessage = 15
 }

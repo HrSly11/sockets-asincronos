@@ -14,6 +14,7 @@ public sealed class ChatServer : IChatServer
     private readonly Dictionary<byte, ClientConnection> registeredClients = [];
     private readonly HashSet<byte> retiringClientIds = [];
     private readonly ConcurrentDictionary<Guid, ClientConnection> allConnections = [];
+    private readonly ConcurrentDictionary<Guid, (string Name, List<byte> MemberIds)> registeredGroups = new();
     private TcpListener? listener;
     private CancellationTokenSource? serverCancellation;
     private Task? acceptLoopTask;
@@ -325,6 +326,18 @@ public sealed class ChatServer : IChatServer
         Frame frame,
         CancellationToken cancellationToken)
     {
+        if (frame.Command == FrameCommand.CreateGroup)
+        {
+            await HandleCreateGroupAsync(sender, frame, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (frame.Command == FrameCommand.GroupMessage)
+        {
+            await RouteGroupMessageAsync(sender, frame, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         if (frame.Command is not (
             FrameCommand.TextMessage
             or FrameCommand.FileStart
@@ -376,6 +389,93 @@ public sealed class ChatServer : IChatServer
             await CleanupFailedRecipientAsync(recipient, cancellationToken).ConfigureAwait(false);
             await SendErrorAsync(sender, ProtocolMessages.MissingTarget, cancellationToken)
                 .ConfigureAwait(false);
+        }
+    }
+
+    private async Task HandleCreateGroupAsync(
+        ClientConnection sender,
+        Frame frame,
+        CancellationToken cancellationToken)
+    {
+        var payload = JsonPayload.Deserialize<CreateGroupPayload>(frame.Payload);
+        var cleanName = payload.GroupName.Trim();
+        if (string.IsNullOrWhiteSpace(cleanName))
+        {
+            await SendErrorAsync(sender, "El nombre del grupo no puede estar vacío.", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var groupId = Guid.NewGuid();
+        var memberIds = payload.MemberIds.Concat([sender.ClientId]).Distinct().ToList();
+
+        var members = new List<ClientInfo>();
+        var memberConnections = new List<ClientConnection>();
+        lock (registryLock)
+        {
+            foreach (var id in memberIds)
+            {
+                if (registeredClients.TryGetValue(id, out var conn) && !string.IsNullOrWhiteSpace(conn.Username))
+                {
+                    members.Add(new ClientInfo(conn.ClientId, conn.Username.Trim()));
+                    memberConnections.Add(conn);
+                }
+            }
+        }
+
+        registeredGroups[groupId] = (cleanName, memberIds);
+        EmitLog($"Grupo '{cleanName}' creado por {sender.Username} con {members.Count} miembros.");
+
+        var createdPayload = JsonPayload.Serialize(new GroupCreatedPayload(groupId, cleanName, members));
+        var responseFrame = new Frame(FrameCommand.GroupCreated, 0, createdPayload);
+
+        foreach (var conn in memberConnections)
+        {
+            try
+            {
+                await conn.SendAsync(responseFrame, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private async Task RouteGroupMessageAsync(
+        ClientConnection sender,
+        Frame frame,
+        CancellationToken cancellationToken)
+    {
+        var payload = JsonPayload.Deserialize<GroupMessagePayload>(frame.Payload);
+        if (!registeredGroups.TryGetValue(payload.GroupId, out var group))
+        {
+            await SendErrorAsync(sender, "El grupo especificado no existe.", cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
+
+        var recipients = new List<ClientConnection>();
+        lock (registryLock)
+        {
+            foreach (var id in group.MemberIds)
+            {
+                if (id != sender.ClientId && registeredClients.TryGetValue(id, out var conn))
+                {
+                    recipients.Add(conn);
+                }
+            }
+        }
+
+        var routedFrame = new Frame(FrameCommand.GroupMessage, sender.ClientId, frame.Payload);
+        foreach (var recipient in recipients)
+        {
+            try
+            {
+                await recipient.SendAsync(routedFrame, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+            }
         }
     }
 
