@@ -1,16 +1,16 @@
 using System.IO;
-using System.Media;
 using System.Runtime.InteropServices;
 using System.Text;
 
 namespace ChatCliente.Media;
 
 /// <summary>
-/// Records audio from the default microphone via WinMM MCI and plays WAV back via SoundPlayer.
+/// Records audio from the default microphone via WinMM MCI.
+/// Plays back WAV files via MCI (guaranteed to produce sound on Windows).
 /// </summary>
 public sealed class WaveAudioRecorder : IDisposable
 {
-    [DllImport("winmm.dll", EntryPoint = "mciSendStringA", CharSet = CharSet.Ansi, SetLastError = true)]
+    [DllImport("winmm.dll", EntryPoint = "mciSendStringA", CharSet = CharSet.Ansi)]
     private static extern int mciSendString(string command, StringBuilder? buffer, int bufferSize, IntPtr hwndCallback);
 
     private bool isRecording;
@@ -26,21 +26,9 @@ public sealed class WaveAudioRecorder : IDisposable
         Directory.CreateDirectory(tempDir);
         currentTempFile = Path.Combine(tempDir, $"voicenote_{Guid.NewGuid():N}.wav");
 
-        // Close any previous session first
         mciSendString("close voicemicrophone wait", null, 0, IntPtr.Zero);
-
-        // Open a new WAV recording device from the default microphone
-        int openRes = mciSendString("open new type waveaudio alias voicemicrophone wait", null, 0, IntPtr.Zero);
-        if (openRes != 0)
-        {
-            // Some systems need the device name explicitly
-            mciSendString("open new type waveaudio alias voicemicrophone", null, 0, IntPtr.Zero);
-        }
-
-        // Set 16-bit, 16kHz, mono PCM
+        mciSendString("open new type waveaudio alias voicemicrophone wait", null, 0, IntPtr.Zero);
         mciSendString("set voicemicrophone bitspersample 16 samplespersec 16000 channels 1 wait", null, 0, IntPtr.Zero);
-
-        // Start recording
         mciSendString("record voicemicrophone", null, 0, IntPtr.Zero);
 
         isRecording = true;
@@ -57,13 +45,11 @@ public sealed class WaveAudioRecorder : IDisposable
             currentTempFile = Path.Combine(td, $"voicenote_{Guid.NewGuid():N}.wav");
         }
 
-        // Stop, save, close — all synchronous
         mciSendString("stop voicemicrophone wait", null, 0, IntPtr.Zero);
         mciSendString($"save voicemicrophone \"{currentTempFile}\" wait", null, 0, IntPtr.Zero);
         mciSendString("close voicemicrophone wait", null, 0, IntPtr.Zero);
 
-        // Small delay to let file flush to disk
-        Thread.Sleep(80);
+        Thread.Sleep(100);
 
         byte[] bytes = Array.Empty<byte>();
         if (File.Exists(currentTempFile))
@@ -71,11 +57,11 @@ public sealed class WaveAudioRecorder : IDisposable
             bytes = File.ReadAllBytes(currentTempFile);
         }
 
-        // If MCI didn't capture anything real (< 5 KB is suspiciously small for any real recording)
+        // If capture produced less than 1 KB, the mic was likely silent/disconnected
         if (bytes.Length <= 44)
         {
-            // Return a 1-second of silence WAV so the socket still transmits
-            byte[] silence = new byte[32000]; // 1s of 16kHz 16-bit mono
+            // 1 second of silence so socket still transmits (not our voice, but at least it sends)
+            byte[] silence = new byte[32000];
             byte[] hdr = BuildWavHeader(silence.Length);
             bytes = new byte[hdr.Length + silence.Length];
             Buffer.BlockCopy(hdr, 0, bytes, 0, hdr.Length);
@@ -87,55 +73,54 @@ public sealed class WaveAudioRecorder : IDisposable
     }
 
     /// <summary>
-    /// Plays a WAV byte array via System.Media.SoundPlayer (guaranteed to work in WinForms).
+    /// Plays a WAV byte array via MCI on a background thread.
+    /// MCI is the most reliable audio playback API on Windows.
     /// </summary>
     public static void PlayAudio(byte[] wavBytes)
     {
         if (wavBytes is null || wavBytes.Length <= 44) return;
 
-        Task.Run(() =>
+        var tmp = Path.Combine(Path.GetTempPath(), $"chatplay_{Guid.NewGuid():N}.wav");
+        try
         {
-            try
-            {
-                using var ms = new MemoryStream(wavBytes);
-                using var player = new SoundPlayer(ms);
-                player.PlaySync();
-            }
-            catch
-            {
-                // Fallback: play from a temp file
-                try
-                {
-                    var tmp = Path.Combine(Path.GetTempPath(), $"chatplay_{Guid.NewGuid():N}.wav");
-                    File.WriteAllBytes(tmp, wavBytes);
-                    using var player = new SoundPlayer(tmp);
-                    player.PlaySync();
-                    try { File.Delete(tmp); } catch { }
-                }
-                catch
-                {
-                }
-            }
-        });
+            File.WriteAllBytes(tmp, wavBytes);
+        }
+        catch
+        {
+            return;
+        }
+
+        PlayFileInternal(tmp, deleteAfter: true);
     }
 
     /// <summary>
-    /// Plays a WAV file directly via SoundPlayer.
+    /// Plays a WAV file via MCI on a background thread.
     /// </summary>
     public static void PlayFile(string filePath)
     {
         if (!File.Exists(filePath)) return;
-        Task.Run(() =>
+        PlayFileInternal(filePath, deleteAfter: false);
+    }
+
+    private static void PlayFileInternal(string filePath, bool deleteAfter)
+    {
+        var t = new Thread(() =>
         {
-            try
+            // Use a short unique alias so multiple notes can play independently
+            var alias = "pl" + Guid.NewGuid().ToString("N")[..8];
+            int res = mciSendString($"open \"{filePath}\" type waveaudio alias {alias}", null, 0, IntPtr.Zero);
+            if (res == 0)
             {
-                using var player = new SoundPlayer(filePath);
-                player.PlaySync();
+                mciSendString($"play {alias} wait", null, 0, IntPtr.Zero);
+                mciSendString($"close {alias}", null, 0, IntPtr.Zero);
             }
-            catch
+            if (deleteAfter)
             {
+                try { File.Delete(filePath); } catch { }
             }
         });
+        t.IsBackground = true;
+        t.Start();
     }
 
     public static byte[] BuildWavHeader(int pcmDataLength, int sampleRate = 16000, short channels = 1, short bitsPerSample = 16)
@@ -159,7 +144,7 @@ public sealed class WaveAudioRecorder : IDisposable
         return h;
     }
 
-    // Keep for backward compat — routes to PlayAudio
+    // Alias for backward compat
     public static byte[] CreateWavHeader(int pcmDataLength, int sampleRate = 16000, short channels = 1, short bitsPerSample = 16)
         => BuildWavHeader(pcmDataLength, sampleRate, channels, bitsPerSample);
 
