@@ -60,11 +60,11 @@ public sealed class WaveAudioRecorder : IDisposable
     // Recording constants
     // ──────────────────────────────────────────────────────────────────────────
 
-    private const int SampleRate     = 16000;
+    private const int SampleRate     = 8000;
     private const ushort Channels    = 1;
     private const ushort Bits        = 16;
     private const int BytesPerSample = Channels * Bits / 8;
-    private const int MaxSeconds     = 120;  // 2-minute cap
+    private const int MaxSeconds     = 30;  // 30-second cap (keeps payload well under 65535 bytes)
 
     // ──────────────────────────────────────────────────────────────────────────
     // State
@@ -163,8 +163,9 @@ public sealed class WaveAudioRecorder : IDisposable
 
             if (recorded > 0 && captureBuffer is not null)
             {
-                pcmData = new byte[recorded];
-                Buffer.BlockCopy(captureBuffer, 0, pcmData, 0, recorded);
+                int safeLen = Math.Min(recorded, 60000);
+                pcmData = new byte[safeLen];
+                Buffer.BlockCopy(captureBuffer, 0, pcmData, 0, safeLen);
             }
 
             bufferPin.Free();
