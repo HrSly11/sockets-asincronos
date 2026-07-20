@@ -960,6 +960,9 @@ public sealed partial class ChatForm : Form
                             fileEntry.Transfer.IsOwn,
                             card.Height + 22));
                     break;
+                case VoiceConversationEntry voiceEntry:
+                    messagesFlow.Controls.Add(CreateVoiceNoteRow(voiceEntry.Note));
+                    break;
             }
         }
 
@@ -1345,42 +1348,49 @@ public sealed partial class ChatForm : Form
 
         playBtn.Click += (_, _) =>
         {
-            mciPlayer ??= new Media.MciAudioPlayer(note.LocalFilePath);
-            if (playTimer is null)
+            if (File.Exists(note.LocalFilePath))
             {
-                playTimer = new System.Windows.Forms.Timer { Interval = 100 };
-                playTimer.Tick += (_, _) =>
+                mciPlayer ??= new Media.MciAudioPlayer(note.LocalFilePath);
+                if (playTimer is null)
                 {
-                    if (mciPlayer is null) return;
-                    var pos = mciPlayer.GetPositionMs();
-                    var total = mciPlayer.GetDurationMs();
-                    if (total > 0)
+                    playTimer = new System.Windows.Forms.Timer { Interval = 100 };
+                    playTimer.Tick += (_, _) =>
                     {
-                        var pct = Math.Min(100, (pos * 100) / total);
-                        trackBar.Value = pct;
-                        var posSec = pos / 1000;
-                        timeLabel.Text = $"{posSec:D2}:{(pos / 100) % 10:D1} / {note.DurationText}";
-                        if (pos >= total || !mciPlayer.IsPlaying())
+                        if (mciPlayer is null) return;
+                        var pos = mciPlayer.GetPositionMs();
+                        var total = mciPlayer.GetDurationMs();
+                        if (total > 0)
                         {
-                            playBtn.Text = "▶";
-                            playTimer.Stop();
-                            trackBar.Value = 0;
+                            var pct = Math.Min(100, (pos * 100) / total);
+                            trackBar.Value = pct;
+                            var posSec = pos / 1000;
+                            timeLabel.Text = $"{posSec:D2}:{(pos / 100) % 10:D1} / {note.DurationText}";
+                            if (pos >= total || !mciPlayer.IsPlaying())
+                            {
+                                playBtn.Text = "▶";
+                                playTimer.Stop();
+                                trackBar.Value = 0;
+                            }
                         }
-                    }
-                };
-            }
+                    };
+                }
 
-            if (mciPlayer.IsPlaying())
-            {
-                mciPlayer.Pause();
-                playTimer.Stop();
-                playBtn.Text = "▶";
+                if (mciPlayer.IsPlaying())
+                {
+                    mciPlayer.Pause();
+                    playTimer.Stop();
+                    playBtn.Text = "▶";
+                }
+                else
+                {
+                    mciPlayer.Play();
+                    playTimer.Start();
+                    playBtn.Text = "⏸️";
+                }
             }
             else
             {
-                mciPlayer.Play();
-                playTimer.Start();
-                playBtn.Text = "⏸️";
+                Media.WaveAudioRecorder.PlayAudio(note.AudioData);
             }
         };
 
@@ -1471,5 +1481,11 @@ public sealed partial class ChatForm : Form
         : ConversationEntry
     {
         public FileTransferView Transfer { get; set; } = transfer;
+    }
+
+    private sealed class VoiceConversationEntry(VoiceNoteView note)
+        : ConversationEntry
+    {
+        public VoiceNoteView Note { get; set; } = note;
     }
 }
