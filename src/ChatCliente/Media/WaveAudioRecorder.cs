@@ -35,7 +35,7 @@ public sealed class WaveAudioRecorder : IDisposable
         public IntPtr reserved;
     }
 
-    private delegate void WaveInProc(IntPtr hwi, uint uMsg, IntPtr dwInstance, ref WAVEHDR waveHdr, IntPtr dwParam2);
+    private delegate void WaveInProc(IntPtr hwi, uint uMsg, IntPtr dwInstance, IntPtr dwParam1, IntPtr dwParam2);
 
     [DllImport("winmm.dll")]
     private static extern int waveInOpen(out IntPtr phwi, int uDeviceID, ref WAVEFORMATEX pwfx, IntPtr dwCallback, IntPtr dwInstance, int fdwOpen);
@@ -48,9 +48,6 @@ public sealed class WaveAudioRecorder : IDisposable
 
     [DllImport("winmm.dll")]
     private static extern int waveInAddBuffer(IntPtr hwi, IntPtr pwh, int cbwh);
-
-    [DllImport("winmm.dll")]
-    private static extern int waveInAddBuffer(IntPtr hwi, ref WAVEHDR pwh, int cbwh);
 
     [DllImport("winmm.dll")]
     private static extern int waveInStart(IntPtr hwi);
@@ -106,7 +103,6 @@ public sealed class WaveAudioRecorder : IDisposable
         int res = waveInOpen(out hWaveIn, WAVE_MAPPER, ref format, callbackPtr, IntPtr.Zero, CALLBACK_FUNCTION);
         if (res != 0)
         {
-            // Fallback to MCI if waveInOpen fails
             mciSendString("close voicemicrophone", null, 0, IntPtr.Zero);
             mciSendString("open new type waveaudio alias voicemicrophone", null, 0, IntPtr.Zero);
             mciSendString("record voicemicrophone", null, 0, IntPtr.Zero);
@@ -114,8 +110,8 @@ public sealed class WaveAudioRecorder : IDisposable
             return;
         }
 
-        // Prepare 4 recording buffers of 4096 bytes each
-        const int bufferSize = 4096;
+        // Prepare 4 recording buffers of 8192 bytes each
+        const int bufferSize = 8192;
         for (int i = 0; i < 4; i++)
         {
             IntPtr bufferPtr = Marshal.AllocHGlobal(bufferSize);
@@ -140,20 +136,24 @@ public sealed class WaveAudioRecorder : IDisposable
         isRecording = true;
     }
 
-    private void WaveInCallback(IntPtr hwi, uint uMsg, IntPtr dwInstance, ref WAVEHDR waveHdr, IntPtr dwParam2)
+    private void WaveInCallback(IntPtr hwi, uint uMsg, IntPtr dwInstance, IntPtr dwParam1, IntPtr dwParam2)
     {
-        if (uMsg == MM_WIM_DATA && isRecording && waveHdr.dwBytesRecorded > 0)
+        if (uMsg == MM_WIM_DATA && isRecording && dwParam1 != IntPtr.Zero)
         {
-            byte[] pcmData = new byte[waveHdr.dwBytesRecorded];
-            Marshal.Copy(waveHdr.lpData, pcmData, 0, (int)waveHdr.dwBytesRecorded);
-            lock (recordedPcmStream)
+            WAVEHDR waveHdr = Marshal.PtrToStructure<WAVEHDR>(dwParam1);
+            if (waveHdr.dwBytesRecorded > 0)
             {
-                recordedPcmStream.Write(pcmData, 0, pcmData.Length);
+                byte[] pcmData = new byte[waveHdr.dwBytesRecorded];
+                Marshal.Copy(waveHdr.lpData, pcmData, 0, (int)waveHdr.dwBytesRecorded);
+                lock (recordedPcmStream)
+                {
+                    recordedPcmStream.Write(pcmData, 0, pcmData.Length);
+                }
             }
 
             if (isRecording && hWaveIn != IntPtr.Zero)
             {
-                waveInAddBuffer(hWaveIn, ref waveHdr, Marshal.SizeOf(waveHdr));
+                waveInAddBuffer(hWaveIn, dwParam1, Marshal.SizeOf<WAVEHDR>());
             }
         }
     }
@@ -203,26 +203,18 @@ public sealed class WaveAudioRecorder : IDisposable
             }
         }
 
-        if (pcmData.Length == 0)
+        if (pcmData.Length > 0)
         {
-            // Fallback: create 1 sec of PCM 16kHz audio so recording never produces an empty payload
-            pcmData = new byte[32000];
-            for (int i = 0; i < 16000; i++)
-            {
-                short sample = (short)(Math.Sin(2 * Math.PI * 440 * i / 16000) * 8000);
-                byte[] sampleBytes = BitConverter.GetBytes(sample);
-                pcmData[i * 2] = sampleBytes[0];
-                pcmData[i * 2 + 1] = sampleBytes[1];
-            }
+            byte[] wavHeader = CreateWavHeader(pcmData.Length, 16000, 1, 16);
+            byte[] fullWav = new byte[wavHeader.Length + pcmData.Length];
+            Buffer.BlockCopy(wavHeader, 0, fullWav, 0, wavHeader.Length);
+            Buffer.BlockCopy(pcmData, 0, fullWav, wavHeader.Length, pcmData.Length);
+
+            File.WriteAllBytes(currentTempFile, fullWav);
+            return (fullWav, currentTempFile);
         }
 
-        byte[] wavHeader = CreateWavHeader(pcmData.Length, 16000, 1, 16);
-        byte[] fullWav = new byte[wavHeader.Length + pcmData.Length];
-        Buffer.BlockCopy(wavHeader, 0, fullWav, 0, wavHeader.Length);
-        Buffer.BlockCopy(pcmData, 0, fullWav, wavHeader.Length, pcmData.Length);
-
-        File.WriteAllBytes(currentTempFile, fullWav);
-        return (fullWav, currentTempFile);
+        return (Array.Empty<byte>(), string.Empty);
     }
 
     public static byte[] CreateWavHeader(int pcmDataLength, int sampleRate = 16000, short channels = 1, short bitsPerSample = 16)
