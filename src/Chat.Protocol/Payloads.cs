@@ -18,6 +18,8 @@ public sealed record FileAbortPayload(Guid TransferId);
 
 public sealed record ErrorPayload(string Message);
 
+public sealed record TextMessagePayload(string MessageId, string Text);
+
 public sealed record EditMessagePayload(string MessageId, string NewText);
 
 public sealed record DeleteMessagePayload(string MessageId);

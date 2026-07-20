@@ -248,21 +248,27 @@ public sealed class ChatClient : IChatClient
         string text,
         CancellationToken cancellationToken = default)
     {
+        return SendMessageAsync(targetId, Guid.NewGuid().ToString("N"), text, cancellationToken);
+    }
+
+    public Task SendMessageAsync(
+        byte targetId,
+        string messageId,
+        string text,
+        CancellationToken cancellationToken = default)
+    {
         if (targetId == 0)
         {
             throw new ArgumentOutOfRangeException(nameof(targetId));
         }
 
+        ArgumentException.ThrowIfNullOrWhiteSpace(messageId);
         if (string.IsNullOrEmpty(text))
         {
             throw new ArgumentException("The message cannot be empty.", nameof(text));
         }
-        var payload = Encoding.UTF8.GetBytes(text);
-        if (payload.Length > Frame.MaximumPayloadLength)
-        {
-            throw new ArgumentOutOfRangeException(nameof(text), "The message is too large.");
-        }
 
+        var payload = JsonPayload.Serialize(new TextMessagePayload(messageId, text));
         var connectionGeneration = GetConnectedGeneration();
         return SendFrameAsync(
             new Frame(FrameCommand.TextMessage, targetId, payload),
@@ -653,9 +659,22 @@ public sealed class ChatClient : IChatClient
                     new ClientListChangedEventArgs(clients));
                 break;
             case FrameCommand.TextMessage:
+                string msgId;
+                string textContent;
+                try
+                {
+                    var textPayload = JsonPayload.Deserialize<TextMessagePayload>(frame.Payload);
+                    msgId = textPayload.MessageId;
+                    textContent = textPayload.Text;
+                }
+                catch
+                {
+                    msgId = Guid.NewGuid().ToString("N");
+                    textContent = Encoding.UTF8.GetString(frame.Payload);
+                }
                 InvokeSubscribersSafely(
                     MessageReceived,
-                    new TextMessageReceivedEventArgs(frame.RouteId, Encoding.UTF8.GetString(frame.Payload)));
+                    new TextMessageReceivedEventArgs(frame.RouteId, msgId, textContent));
                 break;
             case FrameCommand.EditMessage:
                 var edit = JsonPayload.Deserialize<EditMessagePayload>(frame.Payload);

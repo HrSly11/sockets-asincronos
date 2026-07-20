@@ -37,6 +37,12 @@ public interface IChatClient : IAsyncDisposable
         string text,
         CancellationToken cancellationToken = default);
 
+    Task SendMessageAsync(
+        byte targetId,
+        string messageId,
+        string text,
+        CancellationToken cancellationToken = default);
+
     Task SendEditMessageAsync(
         byte targetId,
         string messageId,

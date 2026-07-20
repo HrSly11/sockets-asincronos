@@ -618,6 +618,15 @@ public sealed class AdvancedTransferTests
             string text,
             CancellationToken cancellationToken = default)
         {
+            return SendMessageAsync(targetId, Guid.NewGuid().ToString("N"), text, cancellationToken);
+        }
+
+        public Task SendMessageAsync(
+            byte targetId,
+            string messageId,
+            string text,
+            CancellationToken cancellationToken = default)
+        {
             MessageSent.TrySetResult(text);
             return Task.CompletedTask;
         }

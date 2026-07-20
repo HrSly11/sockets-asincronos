@@ -454,6 +454,15 @@ public sealed class ApplicationSmokeTests
             string text,
             CancellationToken cancellationToken = default)
         {
+            return SendMessageAsync(targetId, Guid.NewGuid().ToString("N"), text, cancellationToken);
+        }
+
+        public Task SendMessageAsync(
+            byte targetId,
+            string messageId,
+            string text,
+            CancellationToken cancellationToken = default)
+        {
             if (SendMessageHandler is not null)
             {
                 return SendMessageHandler(targetId, text, cancellationToken);

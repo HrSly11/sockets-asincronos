@@ -262,9 +262,10 @@ public sealed class ClientCoordinator : IAsyncDisposable
         var text = args.Message;
         try
         {
-            await client.SendMessageAsync(targetId, text);
+            var messageId = Guid.NewGuid().ToString("N");
+            await client.SendMessageAsync(targetId, messageId, text);
             var message = new ChatMessageView(
-                Guid.NewGuid().ToString("N"),
+                messageId,
                 "Tú",
                 text,
                 DateTimeOffset.Now,
@@ -352,7 +353,7 @@ public sealed class ClientCoordinator : IAsyncDisposable
                 .FirstOrDefault(client => client.Id == args.SenderId)?.Username
                 ?? $"Usuario {args.SenderId}";
             var message = new ChatMessageView(
-                Guid.NewGuid().ToString("N"),
+                args.MessageId,
                 senderName,
                 args.Text,
                 DateTimeOffset.Now,

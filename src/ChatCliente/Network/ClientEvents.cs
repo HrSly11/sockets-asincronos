@@ -7,9 +7,11 @@ public sealed class ClientListChangedEventArgs(IReadOnlyList<ClientInfo> clients
     public IReadOnlyList<ClientInfo> Clients { get; } = clients;
 }
 
-public sealed class TextMessageReceivedEventArgs(byte senderId, string text) : EventArgs
+public sealed class TextMessageReceivedEventArgs(byte senderId, string messageId, string text) : EventArgs
 {
     public byte SenderId { get; } = senderId;
+
+    public string MessageId { get; } = messageId;
 
     public string Text { get; } = text;
 }
