@@ -1343,15 +1343,24 @@ public sealed partial class ChatForm : Form
             }
         };
 
+        // Calculate real duration from WAV header bytes (offset 40 = data chunk size)
+        int totalMs = 3000;
+        if (note.AudioData.Length >= 44)
+        {
+            int dataSize = BitConverter.ToInt32(note.AudioData, 40);
+            int sampleRate = BitConverter.ToInt32(note.AudioData, 24);
+            short channels = BitConverter.ToInt16(note.AudioData, 22);
+            short bitsPerSample = BitConverter.ToInt16(note.AudioData, 34);
+            int blockAlign = channels * (bitsPerSample / 8);
+            if (blockAlign > 0 && sampleRate > 0 && dataSize > 0)
+            {
+                totalMs = Math.Max(500, (dataSize * 1000) / (sampleRate * blockAlign));
+            }
+        }
+
         System.Windows.Forms.Timer? playTimer = null;
         bool isPlayingState = false;
         DateTime playStartTime = DateTime.MinValue;
-        int totalMs = 3000;
-        var durationParts = note.DurationText.Replace("s", "").Split(':');
-        if (durationParts.Length == 1 && int.TryParse(durationParts[0], out var sec))
-        {
-            totalMs = Math.Max(1000, sec * 1000);
-        }
 
         playBtn.Click += (_, _) =>
         {
@@ -1361,13 +1370,23 @@ public sealed partial class ChatForm : Form
                 playBtn.Text = "▶";
                 playTimer?.Stop();
                 trackBar.Value = 0;
+                timeLabel.Text = $"00:0 / {note.DurationText}";
             }
             else
             {
                 isPlayingState = true;
                 playBtn.Text = "⏸️";
                 playStartTime = DateTime.Now;
-                Media.WaveAudioRecorder.PlayAudio(note.AudioData);
+
+                // Always play from file if available, else from memory
+                if (File.Exists(note.LocalFilePath))
+                {
+                    Media.WaveAudioRecorder.PlayFile(note.LocalFilePath);
+                }
+                else
+                {
+                    Media.WaveAudioRecorder.PlayAudio(note.AudioData);
+                }
 
                 playTimer ??= new System.Windows.Forms.Timer { Interval = 100 };
                 playTimer.Tick += (_, _) =>
