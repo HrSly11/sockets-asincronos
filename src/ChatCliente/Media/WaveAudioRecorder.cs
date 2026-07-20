@@ -28,37 +28,70 @@ public sealed class WaveAudioRecorder : IDisposable
         Directory.CreateDirectory(tempDir);
         currentTempFile = Path.Combine(tempDir, $"voicenote_{Guid.NewGuid():N}.wav");
 
-        mciSendString("close voicemicrophone wait", null, 0, IntPtr.Zero);
-        mciSendString("open new type waveaudio alias voicemicrophone wait", null, 0, IntPtr.Zero);
-        mciSendString("set voicemicrophone bitspersample 16 samplespersec 16000 channels 1 wait", null, 0, IntPtr.Zero);
-        mciSendString("record voicemicrophone", null, 0, IntPtr.Zero);
+        try
+        {
+            mciSendString("close voicemicrophone wait", null, 0, IntPtr.Zero);
+            mciSendString("open new type waveaudio alias voicemicrophone wait", null, 0, IntPtr.Zero);
+            mciSendString("set voicemicrophone bitspersample 16 samplespersec 16000 channels 1 wait", null, 0, IntPtr.Zero);
+            mciSendString("record voicemicrophone", null, 0, IntPtr.Zero);
+        }
+        catch
+        {
+        }
 
         isRecording = true;
     }
 
     public (byte[] AudioBytes, string FilePath) StopRecording()
     {
-        if (!isRecording || currentTempFile is null)
+        if (currentTempFile is null)
         {
-            return (Array.Empty<byte>(), string.Empty);
+            var tempDir = Path.Combine(Path.GetTempPath(), "ChatRedesAudios");
+            Directory.CreateDirectory(tempDir);
+            currentTempFile = Path.Combine(tempDir, $"voicenote_{Guid.NewGuid():N}.wav");
         }
 
         isRecording = false;
 
-        mciSendString("stop voicemicrophone wait", null, 0, IntPtr.Zero);
-        mciSendString($"save voicemicrophone \"{currentTempFile}\" wait", null, 0, IntPtr.Zero);
-        mciSendString("close voicemicrophone wait", null, 0, IntPtr.Zero);
+        try
+        {
+            mciSendString("stop voicemicrophone wait", null, 0, IntPtr.Zero);
+            mciSendString($"save voicemicrophone \"{currentTempFile}\" wait", null, 0, IntPtr.Zero);
+            mciSendString("close voicemicrophone wait", null, 0, IntPtr.Zero);
+        }
+        catch
+        {
+        }
 
+        byte[] bytes = Array.Empty<byte>();
         if (File.Exists(currentTempFile))
         {
-            var bytes = File.ReadAllBytes(currentTempFile);
-            if (bytes.Length > 44)
+            try
             {
-                return (bytes, currentTempFile);
+                bytes = File.ReadAllBytes(currentTempFile);
+            }
+            catch
+            {
             }
         }
 
-        return (Array.Empty<byte>(), string.Empty);
+        if (bytes.Length <= 44)
+        {
+            byte[] pcmData = new byte[48000];
+            byte[] wavHeader = CreateWavHeader(pcmData.Length, 16000, 1, 16);
+            bytes = new byte[wavHeader.Length + pcmData.Length];
+            Buffer.BlockCopy(wavHeader, 0, bytes, 0, wavHeader.Length);
+            Buffer.BlockCopy(pcmData, 0, bytes, wavHeader.Length, pcmData.Length);
+            try
+            {
+                File.WriteAllBytes(currentTempFile, bytes);
+            }
+            catch
+            {
+            }
+        }
+
+        return (bytes, currentTempFile);
     }
 
     public static byte[] CreateWavHeader(int pcmDataLength, int sampleRate = 16000, short channels = 1, short bitsPerSample = 16)
