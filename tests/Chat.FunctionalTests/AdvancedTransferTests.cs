@@ -601,6 +601,30 @@ public sealed class AdvancedTransferTests
             remove { }
         }
 
+        public event EventHandler<VoiceNoteReceivedEventArgs>? VoiceNoteReceived
+        {
+            add { }
+            remove { }
+        }
+
+        public event EventHandler<CallOfferEventArgs>? CallOffered
+        {
+            add { }
+            remove { }
+        }
+
+        public event EventHandler<CallAnswerEventArgs>? CallAnswered
+        {
+            add { }
+            remove { }
+        }
+
+        public event EventHandler<CallEndEventArgs>? CallEnded
+        {
+            add { }
+            remove { }
+        }
+
         public event EventHandler? Disconnected
         {
             add { }
@@ -652,6 +676,34 @@ public sealed class AdvancedTransferTests
             Guid groupId,
             string messageId,
             string text,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task SendVoiceNoteAsync(
+            byte targetId,
+            string voiceNoteId,
+            long durationMs,
+            string fileName,
+            byte[] audioData,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task SendCallOfferAsync(
+            byte targetId,
+            Guid callId,
+            string callerName,
+            int udpPort,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task SendCallAnswerAsync(
+            byte targetId,
+            Guid callId,
+            bool accepted,
+            string? reason,
+            int udpPort,
+            CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+        public Task SendCallEndAsync(
+            byte targetId,
+            Guid callId,
             CancellationToken cancellationToken = default) => Task.CompletedTask;
 
         public Task SendEditMessageAsync(

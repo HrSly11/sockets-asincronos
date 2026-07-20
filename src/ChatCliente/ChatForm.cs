@@ -19,8 +19,15 @@ public sealed partial class ChatForm : Form
     private Guna2TextBox messageTextBox = null!;
     private Guna2Button sendButton = null!;
     private Guna2Button attachButton = null!;
+    private Guna2Button micButton = null!;
     private Guna2Panel composerMessagePanel = null!;
     private Label composerMessageLabel = null!;
+    private Guna2Panel? activeCallPanel;
+    private Label? activeCallLabel;
+    private Guna2Button? endCallButton;
+    private Guid? currentActiveCallId;
+    private readonly Media.WaveAudioRecorder audioRecorder = new();
+    private DateTime recordStartTime;
     private readonly Dictionary<string, FileTransferCard> transferCards = [];
     private readonly Dictionary<byte, Guna2Panel> userRows = [];
     private readonly Dictionary<byte, string> userNames = [];
@@ -251,6 +258,14 @@ public sealed partial class ChatForm : Form
     public event EventHandler<AttachmentRequestedEventArgs>? AttachmentRequested;
 
     public event EventHandler<SendGroupMessageRequestedEventArgs>? SendGroupMessageRequested;
+
+    public event EventHandler<SendVoiceNoteRequestedEventArgs>? SendVoiceNoteRequested;
+
+    public event EventHandler<CallRequestedEventArgs>? StartCallRequested;
+
+    public event EventHandler<CallAnsweredRequestedEventArgs>? AnswerCallRequested;
+
+    public event EventHandler<EndCallRequestedEventArgs>? EndCallRequested;
 
     public event EventHandler? CreateGroupRequested;
 
@@ -550,13 +565,30 @@ public sealed partial class ChatForm : Form
             Font = Theme.MetadataFont(),
             ForeColor = Theme.SecondaryText
         };
+
+        var callButton = new Guna2Button
+        {
+            Location = new Point(480, 16),
+            Size = new Size(110, 40),
+            Text = "📞 Llamar",
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
+        Theme.StyleSecondaryButton(callButton);
+        callButton.Click += (s, e) =>
+        {
+            if (selectedRecipientId.HasValue)
+            {
+                StartCallRequested?.Invoke(this, new CallRequestedEventArgs(selectedRecipientId.Value));
+            }
+        };
+
         var divider = new Panel
         {
             Dock = DockStyle.Bottom,
             Height = 1,
             BackColor = Theme.Border
         };
-        header.Controls.AddRange([conversationTitleLabel, conversationSubtitleLabel, divider]);
+        header.Controls.AddRange([conversationTitleLabel, conversationSubtitleLabel, callButton, divider]);
         return header;
     }
 
@@ -582,9 +614,19 @@ public sealed partial class ChatForm : Form
         attachButton.Font = Theme.IconFont(16F);
         attachButton.Click += HandleAttachmentClick;
 
+        micButton = new Guna2Button
+        {
+            Location = new Point(72, 20),
+            Size = new Size(46, 46),
+            Text = "🎙️",
+            AccessibleName = "Grabar nota de voz"
+        };
+        Theme.StyleSecondaryButton(micButton);
+        micButton.Click += HandleMicClick;
+
         messageTextBox = new Guna2TextBox
         {
-            Location = new Point(76, 20),
+            Location = new Point(126, 20),
             Height = 46,
             Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top,
             PlaceholderText = "Escribe un mensaje",
@@ -631,7 +673,7 @@ public sealed partial class ChatForm : Form
         }
 
         composer.Resize += LayoutComposer;
-        composer.Controls.AddRange([attachButton, messageTextBox, sendButton, composerMessagePanel]);
+        composer.Controls.AddRange([attachButton, micButton, messageTextBox, sendButton, composerMessagePanel]);
         LayoutComposer(null, EventArgs.Empty);
         return composer;
     }
@@ -1189,6 +1231,148 @@ public sealed partial class ChatForm : Form
         AttachmentRequested?.Invoke(
             this,
             new AttachmentRequestedEventArgs(selectedRecipientId.Value, selectedFiles));
+    }
+
+    private void HandleMicClick(object? sender, EventArgs e)
+    {
+        if (!selectedRecipientId.HasValue)
+        {
+            ShowComposerError("Selecciona un usuario para enviar una nota de voz.");
+            return;
+        }
+
+        if (!audioRecorder.IsRecording)
+        {
+            audioRecorder.StartRecording();
+            recordStartTime = DateTime.Now;
+            micButton.Text = "🔴";
+            micButton.FillColor = Color.Red;
+            ShowComposerError("Grabando audio... Presiona 🔴 para detener y enviar.");
+        }
+        else
+        {
+            var duration = (long)(DateTime.Now - recordStartTime).TotalMilliseconds;
+            var (bytes, path) = audioRecorder.StopRecording();
+            micButton.Text = "🎙️";
+            Theme.StyleSecondaryButton(micButton);
+            ClearComposerError();
+
+            if (bytes.Length > 0 && selectedRecipientId.HasValue)
+            {
+                SendVoiceNoteRequested?.Invoke(
+                    this,
+                    new SendVoiceNoteRequestedEventArgs(selectedRecipientId.Value, bytes, duration));
+            }
+        }
+    }
+
+    public void AppendVoiceNote(byte peerId, VoiceNoteView note)
+    {
+        var row = CreateVoiceNoteRow(note);
+        messagesFlow.Controls.Add(row);
+        if (messagesFlow.Controls.Count > 0)
+        {
+            messagesFlow.ScrollControlIntoView(messagesFlow.Controls[messagesFlow.Controls.Count - 1]);
+        }
+    }
+
+    private Control CreateVoiceNoteRow(VoiceNoteView note)
+    {
+        var rowWidth = Math.Min(340, Math.Max(240, messagesFlow.ClientSize.Width - 140));
+        var panel = new Guna2Panel
+        {
+            Size = new Size(rowWidth, 48),
+            BorderRadius = Theme.CardRadius,
+            FillColor = note.IsOwn ? Theme.Primary : Theme.Surface,
+            Margin = new Padding(4)
+        };
+        var playBtn = new Guna2Button
+        {
+            Location = new Point(6, 6),
+            Size = new Size(36, 36),
+            Text = "▶",
+            BorderRadius = 18
+        };
+        Theme.StyleSecondaryButton(playBtn);
+        playBtn.Click += (_, _) => Media.WaveAudioRecorder.PlayAudio(note.AudioData);
+
+        var infoLabel = new Label
+        {
+            Location = new Point(48, 8),
+            Size = new Size(rowWidth - 56, 32),
+            Text = $"🎙️ Nota de voz ({note.DurationText})",
+            Font = Theme.BodyFont(9F, FontStyle.Bold),
+            ForeColor = note.IsOwn ? Color.White : Theme.MainText,
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+        panel.Controls.AddRange([playBtn, infoLabel]);
+        return CreateAlignedRow(panel, note.IsOwn, 60);
+    }
+
+    public void ShowIncomingCallDialog(byte callerId, Guid callId, string callerName)
+    {
+        var result = MessageBox.Show(
+            $"Llamada de voz entrante de {callerName}.\n¿Deseas aceptar la llamada?",
+            "Llamada entrante 📞",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question);
+
+        AnswerCallRequested?.Invoke(
+            this,
+            new CallAnsweredRequestedEventArgs(callerId, callId, result == DialogResult.Yes));
+    }
+
+    public void ShowActiveCallBanner(Guid callId, string peerName)
+    {
+        currentActiveCallId = callId;
+        if (activeCallPanel is null)
+        {
+            activeCallPanel = new Guna2Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 36,
+                FillColor = Color.FromArgb(40, 200, 80),
+                Padding = new Padding(12, 4, 12, 4)
+            };
+            activeCallLabel = new Label
+            {
+                Location = new Point(16, 6),
+                Size = new Size(320, 24),
+                Text = $"🟢 Llamada en curso con {peerName}",
+                Font = Theme.BodyFont(9F, FontStyle.Bold),
+                ForeColor = Color.White
+            };
+            endCallButton = new Guna2Button
+            {
+                Location = new Point(350, 4),
+                Size = new Size(90, 28),
+                Text = "Colgar 🔴",
+                FillColor = Color.DarkRed
+            };
+            endCallButton.Click += (_, _) =>
+            {
+                if (currentActiveCallId.HasValue && selectedRecipientId.HasValue)
+                {
+                    EndCallRequested?.Invoke(
+                        this,
+                        new EndCallRequestedEventArgs(selectedRecipientId.Value, currentActiveCallId.Value));
+                }
+                HideActiveCallBanner();
+            };
+            activeCallPanel.Controls.AddRange([activeCallLabel, endCallButton]);
+            Controls.Add(activeCallPanel);
+            activeCallPanel.BringToFront();
+        }
+        activeCallPanel.Visible = true;
+    }
+
+    public void HideActiveCallBanner()
+    {
+        currentActiveCallId = null;
+        if (activeCallPanel is not null)
+        {
+            activeCallPanel.Visible = false;
+        }
     }
 
     private sealed class ConversationState

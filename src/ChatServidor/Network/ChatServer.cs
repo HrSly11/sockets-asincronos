@@ -15,7 +15,9 @@ public sealed class ChatServer : IChatServer
     private readonly HashSet<byte> retiringClientIds = [];
     private readonly ConcurrentDictionary<Guid, ClientConnection> allConnections = [];
     private readonly ConcurrentDictionary<Guid, (string Name, List<byte> MemberIds)> registeredGroups = new();
+    private readonly ConcurrentDictionary<byte, IPEndPoint> clientUdpEndpoints = new();
     private TcpListener? listener;
+    private UdpClient? udpListener;
     private CancellationTokenSource? serverCancellation;
     private Task? acceptLoopTask;
     private bool disposed;
@@ -39,6 +41,8 @@ public sealed class ChatServer : IChatServer
     public bool IsRunning { get; private set; }
 
     public int ActualPort { get; private set; }
+
+    public int ActualUdpPort { get; private set; }
 
     internal Func<byte, CancellationToken, Task>? BeforeRecipientSendAsync { get; set; }
 
@@ -72,9 +76,15 @@ public sealed class ChatServer : IChatServer
             listener = newListener;
             ActualPort = ((IPEndPoint)newListener.LocalEndpoint).Port;
             serverCancellation = new CancellationTokenSource();
+
+            var udpPort = requestedPort == 0 ? 0 : ActualPort + 1;
+            udpListener = new UdpClient(udpPort);
+            ActualUdpPort = ((IPEndPoint)udpListener.Client.LocalEndPoint!).Port;
+            _ = UdpRelayLoopAsync(udpListener, serverCancellation.Token);
+
             IsRunning = true;
             acceptLoopTask = AcceptLoopAsync(newListener, serverCancellation.Token);
-            EmitLog($"Servidor iniciado en el puerto {ActualPort}.");
+            EmitLog($"Servidor iniciado en puerto TCP {ActualPort} y puerto UDP {ActualUdpPort}.");
             RunningChanged?.Invoke(this, new ServerRunningChangedEventArgs(true, ActualPort));
         }
         finally
@@ -345,7 +355,11 @@ public sealed class ChatServer : IChatServer
             or FrameCommand.FileEnd
             or FrameCommand.FileAbort
             or FrameCommand.EditMessage
-            or FrameCommand.DeleteMessage))
+            or FrameCommand.DeleteMessage
+            or FrameCommand.VoiceNote
+            or FrameCommand.CallOffer
+            or FrameCommand.CallAnswer
+            or FrameCommand.CallEnd))
         {
             await SendErrorAsync(sender, "El comando recibido no es válido.", cancellationToken)
                 .ConfigureAwait(false);
@@ -501,6 +515,33 @@ public sealed class ChatServer : IChatServer
         finally
         {
             ReleaseRetiredClientId(recipient.ClientId);
+        }
+    }
+
+    private async Task UdpRelayLoopAsync(UdpClient socket, CancellationToken token)
+    {
+        while (!token.IsCancellationRequested)
+        {
+            try
+            {
+                var result = await socket.ReceiveAsync(token).ConfigureAwait(false);
+                if (result.Buffer.Length > 2)
+                {
+                    byte senderId = result.Buffer[0];
+                    byte targetId = result.Buffer[1];
+
+                    clientUdpEndpoints[senderId] = result.RemoteEndPoint;
+
+                    if (clientUdpEndpoints.TryGetValue(targetId, out var targetEp))
+                    {
+                        await socket.SendAsync(result.Buffer, result.Buffer.Length, targetEp).ConfigureAwait(false);
+                    }
+                }
+            }
+            catch
+            {
+                break;
+            }
         }
     }
 

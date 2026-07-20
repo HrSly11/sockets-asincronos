@@ -68,3 +68,35 @@ public sealed class GroupMessageReceivedEventArgs(Guid groupId, byte senderId, s
     public string MessageId { get; } = messageId;
     public string Text { get; } = text;
 }
+
+public sealed class VoiceNoteReceivedEventArgs(byte senderId, string voiceNoteId, long durationMs, string fileName, byte[] audioData) : EventArgs
+{
+    public byte SenderId { get; } = senderId;
+    public string VoiceNoteId { get; } = voiceNoteId;
+    public long DurationMs { get; } = durationMs;
+    public string FileName { get; } = fileName;
+    public byte[] AudioData { get; } = audioData;
+}
+
+public sealed class CallOfferEventArgs(byte callerId, Guid callId, string callerName, int udpPort) : EventArgs
+{
+    public byte CallerId { get; } = callerId;
+    public Guid CallId { get; } = callId;
+    public string CallerName { get; } = callerName;
+    public int UdpPort { get; } = udpPort;
+}
+
+public sealed class CallAnswerEventArgs(byte responderId, Guid callId, bool accepted, string? reason, int udpPort) : EventArgs
+{
+    public byte ResponderId { get; } = responderId;
+    public Guid CallId { get; } = callId;
+    public bool Accepted { get; } = accepted;
+    public string? Reason { get; } = reason;
+    public int UdpPort { get; } = udpPort;
+}
+
+public sealed class CallEndEventArgs(byte peerId, Guid callId) : EventArgs
+{
+    public byte PeerId { get; } = peerId;
+    public Guid CallId { get; } = callId;
+}

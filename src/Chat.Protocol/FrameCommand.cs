@@ -16,5 +16,9 @@ public enum FrameCommand : byte
     DeleteMessage = 12,
     CreateGroup = 13,
     GroupCreated = 14,
-    GroupMessage = 15
+    GroupMessage = 15,
+    VoiceNote = 16,
+    CallOffer = 17,
+    CallAnswer = 18,
+    CallEnd = 19
 }

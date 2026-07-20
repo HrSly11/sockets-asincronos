@@ -13,6 +13,8 @@ public sealed class ClientCoordinator : IAsyncDisposable
     private readonly LocalHistoryService historyService = new();
     private readonly Dictionary<string, List<ChatMessageView>> conversationHistories = new(StringComparer.OrdinalIgnoreCase);
     private string? currentUsername;
+    private string currentHost = "127.0.0.1";
+    private int currentPort = 55000;
     private bool disposed;
 
     public ClientCoordinator(
@@ -84,6 +86,8 @@ public sealed class ClientCoordinator : IAsyncDisposable
             }
 
             currentUsername = username;
+            currentHost = host;
+            currentPort = port;
             conversationHistories.Clear();
             var savedHistory = historyService.LoadHistory(username);
             foreach (var conv in savedHistory)
@@ -450,6 +454,10 @@ public sealed class ClientCoordinator : IAsyncDisposable
         client.MessageDeleted += HandleMessageDeleted;
         client.GroupCreated += HandleGroupCreated;
         client.GroupMessageReceived += HandleGroupMessageReceived;
+        client.VoiceNoteReceived += HandleVoiceNoteReceived;
+        client.CallOffered += HandleCallOffered;
+        client.CallAnswered += HandleCallAnswered;
+        client.CallEnded += HandleCallEnded;
         client.FileProgressChanged += HandleFileProgressChanged;
         client.FileReceived += HandleFileReceived;
         client.ErrorReceived += HandleErrorReceived;
@@ -464,6 +472,10 @@ public sealed class ClientCoordinator : IAsyncDisposable
         client.MessageDeleted -= HandleMessageDeleted;
         client.GroupCreated -= HandleGroupCreated;
         client.GroupMessageReceived -= HandleGroupMessageReceived;
+        client.VoiceNoteReceived -= HandleVoiceNoteReceived;
+        client.CallOffered -= HandleCallOffered;
+        client.CallAnswered -= HandleCallAnswered;
+        client.CallEnded -= HandleCallEnded;
         client.FileProgressChanged -= HandleFileProgressChanged;
         client.FileReceived -= HandleFileReceived;
         client.ErrorReceived -= HandleErrorReceived;
@@ -477,6 +489,10 @@ public sealed class ClientCoordinator : IAsyncDisposable
         chatForm.DeleteMessageRequested += HandleDeleteMessageRequested;
         chatForm.CreateGroupRequested += HandleCreateGroupRequested;
         chatForm.SendGroupMessageRequested += HandleSendGroupMessageRequested;
+        chatForm.SendVoiceNoteRequested += HandleSendVoiceNoteRequested;
+        chatForm.StartCallRequested += HandleStartCallRequested;
+        chatForm.AnswerCallRequested += HandleAnswerCallRequested;
+        chatForm.EndCallRequested += HandleEndCallRequested;
         chatForm.AttachmentRequested += HandleAttachmentRequested;
         chatForm.FormClosed += HandleChatFormClosed;
     }
@@ -488,6 +504,10 @@ public sealed class ClientCoordinator : IAsyncDisposable
         chatForm.DeleteMessageRequested -= HandleDeleteMessageRequested;
         chatForm.CreateGroupRequested -= HandleCreateGroupRequested;
         chatForm.SendGroupMessageRequested -= HandleSendGroupMessageRequested;
+        chatForm.SendVoiceNoteRequested -= HandleSendVoiceNoteRequested;
+        chatForm.StartCallRequested -= HandleStartCallRequested;
+        chatForm.AnswerCallRequested -= HandleAnswerCallRequested;
+        chatForm.EndCallRequested -= HandleEndCallRequested;
         chatForm.AttachmentRequested -= HandleAttachmentRequested;
         chatForm.FormClosed -= HandleChatFormClosed;
     }
@@ -689,6 +709,136 @@ public sealed class ClientCoordinator : IAsyncDisposable
         {
             UpdateChatForm(form => form.ShowComposerError(exception.Message));
         }
+    }
+
+    private Media.UdpAudioStreamer? activeUdpStreamer;
+
+    private async void HandleSendVoiceNoteRequested(object? sender, SendVoiceNoteRequestedEventArgs args)
+    {
+        var client = Client;
+        if (client is null || !client.IsConnected) return;
+
+        try
+        {
+            var vnId = Guid.NewGuid().ToString("N");
+            var seconds = Math.Max(1, args.DurationMs / 1000);
+            await client.SendVoiceNoteAsync(args.TargetId, vnId, args.DurationMs, $"voicenote_{vnId}.wav", args.AudioData);
+            var noteView = new VoiceNoteView(vnId, "Tú", $"{seconds}s", args.AudioData, true);
+            UpdateChatForm(form => form.AppendVoiceNote(args.TargetId, noteView));
+        }
+        catch (Exception exception)
+        {
+            UpdateChatForm(form => form.ShowComposerError(exception.Message));
+        }
+    }
+
+    private void HandleVoiceNoteReceived(object? sender, VoiceNoteReceivedEventArgs args)
+    {
+        try
+        {
+            var senderName = Client?.Clients.FirstOrDefault(c => c.Id == args.SenderId)?.Username ?? $"Usuario {args.SenderId}";
+            var seconds = Math.Max(1, args.DurationMs / 1000);
+            var noteView = new VoiceNoteView(args.VoiceNoteId, senderName, $"{seconds}s", args.AudioData, false);
+            UpdateChatForm(form => form.AppendVoiceNote(args.SenderId, noteView));
+        }
+        catch (Exception exception)
+        {
+            UpdateChatForm(form => form.ShowComposerError(exception.Message));
+        }
+    }
+
+    private async void HandleStartCallRequested(object? sender, CallRequestedEventArgs args)
+    {
+        var client = Client;
+        if (client is null || !client.IsConnected) return;
+
+        try
+        {
+            var callId = Guid.NewGuid();
+            if (activeUdpStreamer is not null)
+            {
+                await activeUdpStreamer.DisposeAsync();
+            }
+            activeUdpStreamer = new Media.UdpAudioStreamer();
+            await client.SendCallOfferAsync(args.TargetId, callId, currentUsername ?? "Usuario", activeUdpStreamer.LocalPort);
+            UpdateChatForm(form => form.ShowComposerError("Llamando... Espere respuesta."));
+        }
+        catch (Exception exception)
+        {
+            UpdateChatForm(form => form.ShowComposerError(exception.Message));
+        }
+    }
+
+    private void HandleCallOffered(object? sender, CallOfferEventArgs args)
+    {
+        UpdateChatForm(form => form.ShowIncomingCallDialog(args.CallerId, args.CallId, args.CallerName));
+    }
+
+    private async void HandleAnswerCallRequested(object? sender, CallAnsweredRequestedEventArgs args)
+    {
+        var client = Client;
+        if (client is null || !client.IsConnected) return;
+
+        try
+        {
+            if (activeUdpStreamer is not null)
+            {
+                await activeUdpStreamer.DisposeAsync();
+            }
+            activeUdpStreamer = new Media.UdpAudioStreamer();
+            await client.SendCallAnswerAsync(args.TargetId, args.CallId, args.Accepted, null, activeUdpStreamer.LocalPort);
+            if (args.Accepted)
+            {
+                var peerName = client.Clients.FirstOrDefault(c => c.Id == args.TargetId)?.Username ?? $"Usuario {args.TargetId}";
+                activeUdpStreamer.StartStreaming(currentHost, currentPort + 1, client.ClientId, args.TargetId);
+                UpdateChatForm(form => form.ShowActiveCallBanner(args.CallId, peerName));
+            }
+        }
+        catch (Exception exception)
+        {
+            UpdateChatForm(form => form.ShowComposerError(exception.Message));
+        }
+    }
+
+    private void HandleCallAnswered(object? sender, CallAnswerEventArgs args)
+    {
+        if (args.Accepted && Client is not null && activeUdpStreamer is not null)
+        {
+            var peerName = Client.Clients.FirstOrDefault(c => c.Id == args.ResponderId)?.Username ?? $"Usuario {args.ResponderId}";
+            activeUdpStreamer.StartStreaming(currentHost, currentPort + 1, Client.ClientId, args.ResponderId);
+            UpdateChatForm(form => form.ShowActiveCallBanner(args.CallId, peerName));
+        }
+        else
+        {
+            UpdateChatForm(form => form.ShowComposerError("La llamada fue rechazada."));
+        }
+    }
+
+    private async void HandleEndCallRequested(object? sender, EndCallRequestedEventArgs args)
+    {
+        var client = Client;
+        if (client is null || !client.IsConnected) return;
+
+        try
+        {
+            await client.SendCallEndAsync(args.TargetId, args.CallId);
+            if (activeUdpStreamer is not null)
+            {
+                await activeUdpStreamer.DisposeAsync();
+                activeUdpStreamer = null;
+            }
+        }
+        catch { }
+    }
+
+    private async void HandleCallEnded(object? sender, CallEndEventArgs args)
+    {
+        if (activeUdpStreamer is not null)
+        {
+            await activeUdpStreamer.DisposeAsync();
+            activeUdpStreamer = null;
+        }
+        UpdateChatForm(form => form.HideActiveCallBanner());
     }
 
     private void RestoreHistoryForUsers(IEnumerable<ClientInfo> clients, ChatForm form)

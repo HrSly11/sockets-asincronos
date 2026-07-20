@@ -110,6 +110,14 @@ public sealed class ChatClient : IChatClient
 
     public event EventHandler<GroupMessageReceivedEventArgs>? GroupMessageReceived;
 
+    public event EventHandler<VoiceNoteReceivedEventArgs>? VoiceNoteReceived;
+
+    public event EventHandler<CallOfferEventArgs>? CallOffered;
+
+    public event EventHandler<CallAnswerEventArgs>? CallAnswered;
+
+    public event EventHandler<CallEndEventArgs>? CallEnded;
+
     public byte ClientId { get; private set; }
 
     public bool IsConnected { get; private set; }
@@ -312,6 +320,73 @@ public sealed class ChatClient : IChatClient
         var payload = JsonPayload.Serialize(new GroupMessagePayload(groupId, messageId, text));
         return SendFrameAsync(
             new Frame(FrameCommand.GroupMessage, 0, payload),
+            cancellationToken,
+            connectionGeneration);
+    }
+
+    public Task SendVoiceNoteAsync(
+        byte targetId,
+        string voiceNoteId,
+        long durationMs,
+        string fileName,
+        byte[] audioData,
+        CancellationToken cancellationToken = default)
+    {
+        if (targetId == 0) throw new ArgumentOutOfRangeException(nameof(targetId));
+        ArgumentException.ThrowIfNullOrWhiteSpace(voiceNoteId);
+        ArgumentNullException.ThrowIfNull(audioData);
+
+        var connectionGeneration = GetConnectedGeneration();
+        var payload = JsonPayload.Serialize(new VoiceNotePayload(voiceNoteId, durationMs, fileName, audioData));
+        return SendFrameAsync(
+            new Frame(FrameCommand.VoiceNote, targetId, payload),
+            cancellationToken,
+            connectionGeneration);
+    }
+
+    public Task SendCallOfferAsync(
+        byte targetId,
+        Guid callId,
+        string callerName,
+        int udpPort,
+        CancellationToken cancellationToken = default)
+    {
+        if (targetId == 0) throw new ArgumentOutOfRangeException(nameof(targetId));
+        var connectionGeneration = GetConnectedGeneration();
+        var payload = JsonPayload.Serialize(new CallOfferPayload(callId, callerName, udpPort));
+        return SendFrameAsync(
+            new Frame(FrameCommand.CallOffer, targetId, payload),
+            cancellationToken,
+            connectionGeneration);
+    }
+
+    public Task SendCallAnswerAsync(
+        byte targetId,
+        Guid callId,
+        bool accepted,
+        string? reason,
+        int udpPort,
+        CancellationToken cancellationToken = default)
+    {
+        if (targetId == 0) throw new ArgumentOutOfRangeException(nameof(targetId));
+        var connectionGeneration = GetConnectedGeneration();
+        var payload = JsonPayload.Serialize(new CallAnswerPayload(callId, accepted, reason, udpPort));
+        return SendFrameAsync(
+            new Frame(FrameCommand.CallAnswer, targetId, payload),
+            cancellationToken,
+            connectionGeneration);
+    }
+
+    public Task SendCallEndAsync(
+        byte targetId,
+        Guid callId,
+        CancellationToken cancellationToken = default)
+    {
+        if (targetId == 0) throw new ArgumentOutOfRangeException(nameof(targetId));
+        var connectionGeneration = GetConnectedGeneration();
+        var payload = JsonPayload.Serialize(new CallEndPayload(callId));
+        return SendFrameAsync(
+            new Frame(FrameCommand.CallEnd, targetId, payload),
             cancellationToken,
             connectionGeneration);
     }
@@ -739,6 +814,30 @@ public sealed class ChatClient : IChatClient
                 InvokeSubscribersSafely(
                     GroupMessageReceived,
                     new GroupMessageReceivedEventArgs(groupMsg.GroupId, frame.RouteId, groupMsg.MessageId, groupMsg.Text));
+                break;
+            case FrameCommand.VoiceNote:
+                var vn = JsonPayload.Deserialize<VoiceNotePayload>(frame.Payload);
+                InvokeSubscribersSafely(
+                    VoiceNoteReceived,
+                    new VoiceNoteReceivedEventArgs(frame.RouteId, vn.VoiceNoteId, vn.DurationMs, vn.FileName, vn.AudioData));
+                break;
+            case FrameCommand.CallOffer:
+                var offer = JsonPayload.Deserialize<CallOfferPayload>(frame.Payload);
+                InvokeSubscribersSafely(
+                    CallOffered,
+                    new CallOfferEventArgs(frame.RouteId, offer.CallId, offer.CallerName, offer.UdpPort));
+                break;
+            case FrameCommand.CallAnswer:
+                var answer = JsonPayload.Deserialize<CallAnswerPayload>(frame.Payload);
+                InvokeSubscribersSafely(
+                    CallAnswered,
+                    new CallAnswerEventArgs(frame.RouteId, answer.CallId, answer.Accepted, answer.Reason, answer.UdpPort));
+                break;
+            case FrameCommand.CallEnd:
+                var end = JsonPayload.Deserialize<CallEndPayload>(frame.Payload);
+                InvokeSubscribersSafely(
+                    CallEnded,
+                    new CallEndEventArgs(frame.RouteId, end.CallId));
                 break;
             case FrameCommand.FileStart:
                 await HandleFileStartAsync(

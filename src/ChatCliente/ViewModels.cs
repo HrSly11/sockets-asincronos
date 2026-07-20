@@ -65,3 +65,30 @@ public sealed class SendGroupMessageRequestedEventArgs(Guid groupId, string mess
 
     public string Message { get; } = message;
 }
+
+public sealed record VoiceNoteView(string VoiceNoteId, string Sender, string DurationText, byte[] AudioData, bool IsOwn);
+
+public sealed class SendVoiceNoteRequestedEventArgs(byte targetId, byte[] audioData, long durationMs) : EventArgs
+{
+    public byte TargetId { get; } = targetId;
+    public byte[] AudioData { get; } = audioData;
+    public long DurationMs { get; } = durationMs;
+}
+
+public sealed class CallRequestedEventArgs(byte targetId) : EventArgs
+{
+    public byte TargetId { get; } = targetId;
+}
+
+public sealed class CallAnsweredRequestedEventArgs(byte targetId, Guid callId, bool accepted) : EventArgs
+{
+    public byte TargetId { get; } = targetId;
+    public Guid CallId { get; } = callId;
+    public bool Accepted { get; } = accepted;
+}
+
+public sealed class EndCallRequestedEventArgs(byte targetId, Guid callId) : EventArgs
+{
+    public byte TargetId { get; } = targetId;
+    public Guid CallId { get; } = callId;
+}

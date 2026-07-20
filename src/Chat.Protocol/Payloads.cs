@@ -30,6 +30,14 @@ public sealed record GroupCreatedPayload(Guid GroupId, string GroupName, IReadOn
 
 public sealed record GroupMessagePayload(Guid GroupId, string MessageId, string Text);
 
+public sealed record VoiceNotePayload(string VoiceNoteId, long DurationMs, string FileName, byte[] AudioData);
+
+public sealed record CallOfferPayload(Guid CallId, string CallerName, int UdpPort);
+
+public sealed record CallAnswerPayload(Guid CallId, bool Accepted, string? Reason, int UdpPort);
+
+public sealed record CallEndPayload(Guid CallId);
+
 
 public static class JsonPayload
 {

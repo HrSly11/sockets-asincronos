@@ -22,6 +22,14 @@ public interface IChatClient : IAsyncDisposable
 
     event EventHandler<GroupMessageReceivedEventArgs>? GroupMessageReceived;
 
+    event EventHandler<VoiceNoteReceivedEventArgs>? VoiceNoteReceived;
+
+    event EventHandler<CallOfferEventArgs>? CallOffered;
+
+    event EventHandler<CallAnswerEventArgs>? CallAnswered;
+
+    event EventHandler<CallEndEventArgs>? CallEnded;
+
     event EventHandler? Disconnected;
 
     byte ClientId { get; }
@@ -56,6 +64,34 @@ public interface IChatClient : IAsyncDisposable
         Guid groupId,
         string messageId,
         string text,
+        CancellationToken cancellationToken = default);
+
+    Task SendVoiceNoteAsync(
+        byte targetId,
+        string voiceNoteId,
+        long durationMs,
+        string fileName,
+        byte[] audioData,
+        CancellationToken cancellationToken = default);
+
+    Task SendCallOfferAsync(
+        byte targetId,
+        Guid callId,
+        string callerName,
+        int udpPort,
+        CancellationToken cancellationToken = default);
+
+    Task SendCallAnswerAsync(
+        byte targetId,
+        Guid callId,
+        bool accepted,
+        string? reason,
+        int udpPort,
+        CancellationToken cancellationToken = default);
+
+    Task SendCallEndAsync(
+        byte targetId,
+        Guid callId,
         CancellationToken cancellationToken = default);
 
     Task SendEditMessageAsync(
