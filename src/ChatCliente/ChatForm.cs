@@ -1343,54 +1343,53 @@ public sealed partial class ChatForm : Form
             }
         };
 
-        Media.MciAudioPlayer? mciPlayer = null;
         System.Windows.Forms.Timer? playTimer = null;
+        bool isPlayingState = false;
+        DateTime playStartTime = DateTime.MinValue;
+        int totalMs = 3000;
+        var durationParts = note.DurationText.Replace("s", "").Split(':');
+        if (durationParts.Length == 1 && int.TryParse(durationParts[0], out var sec))
+        {
+            totalMs = Math.Max(1000, sec * 1000);
+        }
 
         playBtn.Click += (_, _) =>
         {
-            if (File.Exists(note.LocalFilePath))
+            if (isPlayingState)
             {
-                mciPlayer ??= new Media.MciAudioPlayer(note.LocalFilePath);
-                if (playTimer is null)
-                {
-                    playTimer = new System.Windows.Forms.Timer { Interval = 100 };
-                    playTimer.Tick += (_, _) =>
-                    {
-                        if (mciPlayer is null) return;
-                        var pos = mciPlayer.GetPositionMs();
-                        var total = mciPlayer.GetDurationMs();
-                        if (total > 0)
-                        {
-                            var pct = Math.Min(100, (pos * 100) / total);
-                            trackBar.Value = pct;
-                            var posSec = pos / 1000;
-                            timeLabel.Text = $"{posSec:D2}:{(pos / 100) % 10:D1} / {note.DurationText}";
-                            if (pos >= total || !mciPlayer.IsPlaying())
-                            {
-                                playBtn.Text = "▶";
-                                playTimer.Stop();
-                                trackBar.Value = 0;
-                            }
-                        }
-                    };
-                }
-
-                if (mciPlayer.IsPlaying())
-                {
-                    mciPlayer.Pause();
-                    playTimer.Stop();
-                    playBtn.Text = "▶";
-                }
-                else
-                {
-                    mciPlayer.Play();
-                    playTimer.Start();
-                    playBtn.Text = "⏸️";
-                }
+                isPlayingState = false;
+                playBtn.Text = "▶";
+                playTimer?.Stop();
+                trackBar.Value = 0;
             }
             else
             {
+                isPlayingState = true;
+                playBtn.Text = "⏸️";
+                playStartTime = DateTime.Now;
                 Media.WaveAudioRecorder.PlayAudio(note.AudioData);
+
+                playTimer ??= new System.Windows.Forms.Timer { Interval = 100 };
+                playTimer.Tick += (_, _) =>
+                {
+                    if (!isPlayingState) return;
+                    var elapsedMs = (int)(DateTime.Now - playStartTime).TotalMilliseconds;
+                    if (totalMs > 0)
+                    {
+                        var pct = Math.Min(100, (elapsedMs * 100) / totalMs);
+                        trackBar.Value = pct;
+                        var posSec = elapsedMs / 1000;
+                        timeLabel.Text = $"{posSec:D2}:{(elapsedMs / 100) % 10:D1} / {note.DurationText}";
+                    }
+                    if (elapsedMs >= totalMs)
+                    {
+                        isPlayingState = false;
+                        playBtn.Text = "▶";
+                        playTimer.Stop();
+                        trackBar.Value = 0;
+                    }
+                };
+                playTimer.Start();
             }
         };
 
