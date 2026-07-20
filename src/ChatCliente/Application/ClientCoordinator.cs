@@ -737,16 +737,20 @@ public sealed class ClientCoordinator : IAsyncDisposable
     private async void HandleSendVoiceNoteRequested(object? sender, SendVoiceNoteRequestedEventArgs args)
     {
         var client = Client;
+
+        var vnId      = Guid.NewGuid().ToString("N");
+        var seconds   = Math.Max(1, args.DurationMs / 1000);
+        var savedPath = SaveVoiceNoteFile(vnId, args.AudioData);
+        var noteView  = new VoiceNoteView(vnId, "Tú", $"{seconds}s", args.AudioData, true, savedPath);
+
+        // Show in chat immediately — before the network round-trip
+        UpdateChatForm(form => form.AppendVoiceNote(args.TargetId, noteView));
+
         if (client is null || !client.IsConnected) return;
 
         try
         {
-            var vnId = Guid.NewGuid().ToString("N");
-            var seconds = Math.Max(1, args.DurationMs / 1000);
-            var savedPath = SaveVoiceNoteFile(vnId, args.AudioData);
             await client.SendVoiceNoteAsync(args.TargetId, vnId, args.DurationMs, $"voicenote_{vnId}.wav", args.AudioData);
-            var noteView = new VoiceNoteView(vnId, "Tú", $"{seconds}s", args.AudioData, true, savedPath);
-            UpdateChatForm(form => form.AppendVoiceNote(args.TargetId, noteView));
         }
         catch (Exception exception)
         {
